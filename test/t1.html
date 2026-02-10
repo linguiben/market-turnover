@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>股市指数 30 日交易看板</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f4f7f9; margin: 20px; }
+        .container { max-width: 1200px; margin: auto; }
+        header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        
+        /* 指数切换按钮 */
+        .tabs { margin-bottom: 20px; }
+        .tab-btn { padding: 10px 20px; cursor: pointer; border: none; background: #ddd; margin-right: 5px; border-radius: 5px; }
+        .tab-btn.active { background: #007bff; color: white; }
+
+        /* 数据表格 */
+        .data-table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .data-table th, .data-table td { padding: 12px 15px; text-align: right; border-bottom: 1px solid #eee; }
+        .data-table th { background-color: #f8f9fa; color: #333; }
+        .data-table tr:hover { background-color: #f1f1f1; }
+        .text-left { text-align: left !important; }
+
+        /* 图表容器 */
+        #chart-container { width: 100%; height: 400px; background: white; margin-bottom: 30px; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <header>
+        <h1>指数行情追踪 (最近30日)</h1>
+        <div id="last-update">最后更新：2026-02-10</div>
+    </header>
+
+    <div class="tabs">
+        <button class="tab-btn active" onclick="switchIndex('HSI')">恒生指数 (HSI)</button>
+        <button class="tab-btn" onclick="switchIndex('SZSE')">深证成指 (399001)</button>
+        <button class="tab-btn" onclick="switchIndex('SSE')">上证指数 (000001)</button>
+    </div>
+
+    <div id="chart-container"></div>
+
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th class="text-left">日期</th>
+                <th>半日成交量</th>
+                <th>中午收市点数</th>
+                <th>全日成交量</th>
+                <th>全日收市点数</th>
+            </tr>
+        </thead>
+        <tbody id="data-body">
+            </tbody>
+    </table>
+</div>
+
+<script>
+    // 模拟数据结构
+    const mockData = {
+        'HSI': [
+            { date: '2026-02-10', am_vol: '650亿', am_close: 19500.50, day_vol: '1200亿', day_close: 19620.30 },
+            // ... 重复30天数据
+        ],
+        // 其他指数类似...
+    };
+
+    function switchIndex(indexCode) {
+        // 更新按钮状态
+        document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+        event.target.classList.add('active');
+        
+        // 此处应调用渲染函数更新表格和图表
+        console.log("切换到指数:", indexCode);
+        renderTable(indexCode);
+    }
+
+    function renderTable(index) {
+        const body = document.getElementById('data-body');
+        // 这里可以根据 index 渲染不同的模拟数据
+        body.innerHTML = `
+            <tr>
+                <td class="text-left">2026-02-10</td>
+                <td>650.2 亿</td>
+                <td>19,500.50</td>
+                <td>1,210.8 亿</td>
+                <td style="color:red;">19,620.30</td>
+            </tr>
+            `;
+    }
+
+    // 初始化页面
+    renderTable('HSI');
+    // 初始化 ECharts (此处省略具体配置以保持代码简洁)
+</script>
+
+</body>
+</html>
