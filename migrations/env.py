@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import os
 from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config, pool
 from alembic import context
 
+from app.config import settings
 from app.db.models import Base
 
 config = context.config
@@ -18,8 +18,8 @@ target_metadata = Base.metadata
 
 
 def get_url() -> str:
-    # Prefer env var (docker)
-    url = os.getenv("DATABASE_URL")
+    # Prefer app settings (supports DATABASE_URL or POSTGRES_* composition)
+    url = settings.DATABASE_URL
     if url:
         return url
 
