@@ -380,7 +380,7 @@ def run_job(db: Session, job_name: str) -> JobRun:
                 turnover = mid.turnover_hkd
                 asof = mid.asof
                 if asof is not None:
-                    today = asof.astimezone(timezone(timedelta(hours=8))).date()
+                    today = asof.date()
                 t_payload = {"raw": mid.raw_turnover_text}
                 t_status = "success"
             except Exception as e:
@@ -408,7 +408,7 @@ def run_job(db: Session, job_name: str) -> JobRun:
             try:
                 snap = fetch_hsi_snapshot()
                 if snap.asof is not None:
-                    today = snap.asof.astimezone(timezone(timedelta(hours=8))).date()
+                    today = snap.asof.date()
                 hsi = HsiQuoteFact(
                     trade_date=today,
                     session=SessionType.AM,
@@ -511,7 +511,7 @@ def run_job(db: Session, job_name: str) -> JobRun:
                 source = "AASTOCKS"
                 asof = snap.asof
                 if asof is not None:
-                    today = asof.astimezone(timezone(timedelta(hours=8))).date()
+                    today = asof.date()
                 payload = {"raw": snap.raw}
                 status = "success"
             except Exception as e:
