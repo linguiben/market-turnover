@@ -73,12 +73,15 @@ def fetch_minute_kline(
 
     params = {
         "secid": secid,
-        "klt": "1",
+        "klt": "1",  # 1-minute
         "fqt": "0",
         "beg": beg,
         "end": end,
+        # Eastmoney requires `ut` + fields to return kline data reliably.
+        "ut": "fa5fd1943c7b386f172d6893dbfba10b",
+        "fields1": "f1,f2,f3,f4,f5,f6",
         # fields2 controls the kline string columns
-        "fields2": "f51,f52,f53,f54,f55,f56,f57,f58",  # dt,open,close,high,low,vol,amount,??
+        "fields2": "f51,f52,f53,f54,f55,f56,f57,f58",
     }
 
     with httpx.Client(timeout=timeout_seconds, headers={"User-Agent": "market-turnover/0.1"}) as client:
