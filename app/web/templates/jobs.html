@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Job runs</h2>
+<table>
+  <thead><tr><th>Job</th><th>Started</th><th>Finished</th><th>Status</th><th>Error</th></tr></thead>
+  <tbody>
+  {% for row in jobs %}
+    <tr>
+      <td>{{ row.job_name }}</td>
+      <td>{{ row.started_at }}</td>
+      <td>{{ row.finished_at or '' }}</td>
+      <td>{{ row.status }}</td>
+      <td><pre style="white-space: pre-wrap;">{{ row.error or '' }}</pre></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

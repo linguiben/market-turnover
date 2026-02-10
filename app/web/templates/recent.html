@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Recent (facts)</h2>
+<table>
+  <thead><tr><th>Date</th><th>Session</th><th>HSI</th><th>Turnover (億)</th><th>Source</th><th>Quality</th></tr></thead>
+  <tbody>
+  {% for row in facts %}
+    {% set q = quotes.get((row.trade_date, row.session)) %}
+    <tr>
+      <td>{{ row.trade_date }}</td>
+      <td>{{ row.session }}</td>
+      <td>{{ format_hsi(q.last if q else none) }}</td>
+      <td>{{ format_yi(row.turnover_hkd) }}</td>
+      <td>{{ row.best_source }}</td>
+      <td>{{ row.quality }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

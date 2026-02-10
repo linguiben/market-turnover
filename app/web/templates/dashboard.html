@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Dashboard</h2>
+<p>Today: <code>{{ today }}</code></p>
+
+<h3>Latest facts</h3>
+<table>
+  <thead><tr><th>Date</th><th>Session</th><th>HSI</th><th>Turnover (億)</th><th>Source</th><th>Quality</th><th>Updated</th></tr></thead>
+  <tbody>
+  {% for row in facts %}
+    {% set q = quotes.get((row.trade_date, row.session)) %}
+    <tr>
+      <td>{{ row.trade_date }}</td>
+      <td>{{ row.session }}</td>
+      <td>{{ format_hsi(q.last if q else none) }}</td>
+      <td>{{ format_yi(row.turnover_hkd) }}</td>
+      <td>{{ row.best_source }}</td>
+      <td>{{ row.quality }}</td>
+      <td>{{ row.updated_at }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<h3>Manual triggers</h3>
+{% set base = (request.scope.get('root_path') or '') %}
+<form method="post" action="{{ base }}/api/jobs/run">
+  <select name="job_name">
+    <option value="fetch_am">fetch_am</option>
+    <option value="fetch_full">fetch_full</option>
+    <option value="backfill_hkex">backfill_hkex</option>
+  </select>
+  <button type="submit">Run</button>
+</form>
+{% endblock %}
