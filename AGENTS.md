@@ -8,7 +8,7 @@
 ## Setup
 1. Copy env file and adjust as needed:
 ```bash
-cp .env.example .env
+cp env.example .env
 ```
 2. Create the external Postgres volume used by docker-compose:
 ```bash
@@ -43,5 +43,4 @@ curl -X POST -F 'job_name=fetch_full' http://localhost:8000/market-turnover/api/
 ```
 
 ## Notes
-- The web container runs database migrations on startup (`alembic upgrade head`).
 - `docker-compose.yml` expects the `hk-turnover_pgdata` volume to exist.
