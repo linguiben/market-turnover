@@ -20,6 +20,7 @@ from app.sources.hkex import fetch_hkex_latest_table
 from app.sources.aastocks import fetch_midday_turnover
 from app.sources.aastocks_index import fetch_hsi_snapshot
 from app.sources.tushare_index import TushareIndexDaily, daily_row_asof, fetch_index_daily_history, fetch_latest_index_daily
+from app.sources.tencent_index import fetch_index_daily_history as fetch_tencent_index_daily_history
 
 
 def _persist_tushare_rows(
@@ -150,35 +151,124 @@ def _sync_tushare_index_quotes(db: Session) -> tuple[str, dict]:
 
 
 def _backfill_tushare_index_quotes(db: Session, *, lookback_days: int = 90) -> tuple[str, dict]:
-    token = (settings.TUSHARE_PRO_TOKEN or "").strip()
-    if not token:
-        return "skipped", {"enabled": False, "reason": "TUSHARE_PRO_TOKEN is empty"}
+    """Backfill index quotes.
 
+    Primary source: Tushare `index_daily`.
+    Fallback: Tencent public kline (CN indices only) when Tushare permission is missing.
+    """
+
+    token = (settings.TUSHARE_PRO_TOKEN or "").strip()
     index_map = settings.tushare_index_map()
+
     if not index_map:
         return "skipped", {"enabled": False, "reason": "TUSHARE_INDEX_CODES is empty"}
 
+    # 1) Try Tushare first (if token configured)
+    if token:
+        try:
+            rows = fetch_index_daily_history(
+                token=token,
+                index_map=index_map,
+                base_url=settings.TUSHARE_PRO_BASE,
+                timeout_seconds=settings.TUSHARE_TIMEOUT_SECONDS,
+                lookback_days=lookback_days,
+            )
+            write_stats = _persist_tushare_rows(db, rows=rows, skip_existing_source=True)
+            write_stats["enabled"] = True
+            write_stats["lookback_days"] = lookback_days
+            unique_dates = sorted({row.trade_date for row in rows})
+            if unique_dates:
+                write_stats["date_from"] = str(unique_dates[0])
+                write_stats["date_to"] = str(unique_dates[-1])
+            return "success", write_stats
+        except Exception as e:
+            err = str(e)
+            # Permission error: fallback to Tencent
+            if "没有接口访问权限" not in err and "doc_id=108" not in err:
+                return "partial", {"enabled": True, "lookback_days": lookback_days, "error": err}
+
+    # 2) Tencent fallback (CN indices only)
     try:
-        rows = fetch_index_daily_history(
-            token=token,
+        tencent_rows = fetch_tencent_index_daily_history(
             index_map=index_map,
-            base_url=settings.TUSHARE_PRO_BASE,
+            lookback_days=max(lookback_days, 15),
             timeout_seconds=settings.TUSHARE_TIMEOUT_SECONDS,
-            lookback_days=lookback_days,
         )
     except Exception as e:
-        return "partial", {"enabled": True, "lookback_days": lookback_days, "error": str(e)}
+        return "partial", {"enabled": True, "fallback": "TENCENT", "lookback_days": lookback_days, "error": str(e)}
 
-    write_stats = _persist_tushare_rows(db, rows=rows, skip_existing_source=True)
-    write_stats["enabled"] = True
-    write_stats["lookback_days"] = lookback_days
+    if not tencent_rows:
+        return "partial", {"enabled": True, "fallback": "TENCENT", "lookback_days": lookback_days, "rows": 0}
 
-    unique_dates = sorted({row.trade_date for row in rows})
-    if unique_dates:
-        write_stats["date_from"] = str(unique_dates[0])
-        write_stats["date_to"] = str(unique_dates[-1])
+    index_id_cache: dict[str, int] = {}
+    inserted = 0
+    facts_updated = 0
+    snapshots_updated = 0
 
-    return "success", write_stats
+    # Keep one row per (code, trade_date)
+    latest: dict[tuple[str, date], object] = {}
+    for row in tencent_rows:
+        latest[(row.code, row.trade_date)] = row
+
+    for (code, trade_date), row in sorted(latest.items(), key=lambda x: (x[0][0], x[0][1])):
+        if code not in index_id_cache:
+            index_row = ensure_market_index(db, code)
+            index_id_cache[code] = index_row.id
+
+        index_id = index_id_cache[code]
+        asof = daily_row_asof(trade_date)
+
+        add_index_source_record(
+            db,
+            index_id=index_id,
+            trade_date=trade_date,
+            session=SessionType.FULL,
+            source="TENCENT",
+            last=int(round(float(row.close) * 100)),
+            change_points=int(round(float(row.change) * 100)) if row.change is not None else None,
+            change_pct=int(round(float(row.pct_chg) * 100)) if row.pct_chg is not None else None,
+            turnover_amount=None,
+            turnover_currency="CNY",
+            asof_ts=asof,
+            payload={"symbol": row.symbol, "raw": row.raw, "volume": row.volume},
+            ok=True,
+        )
+        inserted += 1
+
+        fact = upsert_index_history_from_sources(db, index_id=index_id, trade_date=trade_date, session=SessionType.FULL)
+        if fact is not None:
+            facts_updated += 1
+
+        upsert_realtime_snapshot(
+            db,
+            index_id=index_id,
+            trade_date=trade_date,
+            session=SessionType.FULL,
+            last=int(round(float(row.close) * 100)),
+            change_points=int(round(float(row.change) * 100)) if row.change is not None else None,
+            change_pct=int(round(float(row.pct_chg) * 100)) if row.pct_chg is not None else None,
+            turnover_amount=None,
+            turnover_currency="CNY",
+            data_updated_at=asof,
+            is_closed=True,
+            source="TENCENT",
+            payload={"symbol": row.symbol, "raw": row.raw, "volume": row.volume},
+        )
+        snapshots_updated += 1
+
+    unique_dates = sorted({d for (_, d) in latest.keys()})
+
+    return "success", {
+        "enabled": True,
+        "fallback": "TENCENT",
+        "lookback_days": lookback_days,
+        "rows": len(tencent_rows),
+        "inserted": inserted,
+        "facts_updated": facts_updated,
+        "snapshots_updated": snapshots_updated,
+        "date_from": str(unique_dates[0]) if unique_dates else None,
+        "date_to": str(unique_dates[-1]) if unique_dates else None,
+    }
 
 
 def run_job(db: Session, job_name: str) -> JobRun:
