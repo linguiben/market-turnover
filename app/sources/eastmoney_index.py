@@ -37,9 +37,10 @@ def _parse_kline_rows(rows: list[str]) -> list[EastmoneyMinuteBar]:
         dt = datetime.strptime(parts[0], "%Y-%m-%d %H:%M")
         close = float(parts[2])
         amount = None
-        if len(parts) >= 8 and parts[7] not in (None, ""):
+        # With fields2=f51..f58, amount is usually the 7th column (index 6).
+        if len(parts) >= 7 and parts[6] not in (None, ""):
             try:
-                amount = float(parts[7])
+                amount = float(parts[6])
             except Exception:
                 amount = None
         out.append(EastmoneyMinuteBar(trade_date=dt.date(), dt=dt, close=close, amount=amount, raw=row))
