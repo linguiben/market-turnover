@@ -295,7 +295,12 @@ def _backfill_eastmoney_cn_halfday(db: Session, *, lookback_days: int = 90) -> t
     date_max = None
 
     for code, ts_code in target.items():
-        bars = fetch_minute_kline(ts_code=ts_code, lookback_days=lookback_days, timeout_seconds=settings.HKEX_TIMEOUT_SECONDS)
+        bars = fetch_minute_kline(
+            ts_code=ts_code,
+            lookback_days=lookback_days,
+            timeout_seconds=settings.HKEX_TIMEOUT_SECONDS,
+            klt="5",
+        )
         agg = aggregate_halfday_and_fullday_amount(bars=bars)
 
         index_row = ensure_market_index(db, code)

@@ -52,18 +52,23 @@ def fetch_minute_kline(
     ts_code: str,
     lookback_days: int = 30,
     timeout_seconds: int = 20,
+    klt: str = "5",
 ) -> list[EastmoneyMinuteBar]:
-    """Fetch minute kline for an index from Eastmoney public API.
+    """Fetch intraday kline for an index from Eastmoney public API.
 
     Endpoint: https://push2his.eastmoney.com/api/qt/stock/kline/get
+
+    Note: 1-minute (`klt=1`) often only returns the latest trading day.
+    For historical backfills, use 5-minute bars (`klt=5`, default).
+
     Params:
       - secid: 1.000001 / 0.399001
-      - klt=1 (1 minute)
+      - klt: 1/5/15/30/60 ... (minutes)
       - fqt=0
       - beg/end: YYYYMMDD
       - fields2: include amount
 
-    Returns minute bars (best-effort)."""
+    Returns intraday bars (best-effort)."""
 
     if lookback_days <= 0:
         raise ValueError("lookback_days must be positive")
@@ -74,7 +79,7 @@ def fetch_minute_kline(
 
     params = {
         "secid": secid,
-        "klt": "1",  # 1-minute
+        "klt": str(klt),
         "fqt": "0",
         "beg": beg,
         "end": end,
