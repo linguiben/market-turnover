@@ -44,8 +44,8 @@ AVAILABLE_JOBS: tuple[dict[str, str], ...] = (
     },
     {
         "name": "backfill_tushare_index",
-        "label": "回填指数90天",
-        "description": "回填最近 90 天 HSI/SSE/SZSE 日线数据（跳过已存在记录）。",
+        "label": "回填指数1年",
+        "description": "回填最近 1 年 HSI/SSE/SZSE 日线数据（跳过已存在记录）。",
     },
     {
         "name": "backfill_cn_halfday",

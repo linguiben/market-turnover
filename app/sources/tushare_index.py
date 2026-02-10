@@ -92,15 +92,28 @@ def fetch_index_daily_history(
 
     start_date = (date.today() - timedelta(days=lookback_days)).strftime("%Y%m%d")
     end_date = date.today().strftime("%Y%m%d")
-    fields = "ts_code,trade_date,close,change,pct_chg,amount,vol"
+    # index_daily provides amount/vol; index_global typically provides only price/change.
+    fields_index_daily = "ts_code,trade_date,close,change,pct_chg,amount,vol"
+    fields_index_global = "ts_code,trade_date,close,change,pct_chg"
     results: list[TushareIndexDaily] = []
 
     for code, ts_code in index_map.items():
+        ts_code = ts_code.strip()
+        # CN indices (e.g. 000001.SH) use index_daily; global indices like HSI use index_global.
+        if "." in ts_code:
+            api_name = "index_daily"
+            params = {"ts_code": ts_code, "start_date": start_date, "end_date": end_date}
+            fields = fields_index_daily
+        else:
+            api_name = "index_global"
+            params = {"ts_code": ts_code, "start_date": start_date, "end_date": end_date}
+            fields = fields_index_global
+
         rows = _request_tushare(
             base_url=base_url,
             token=token,
-            api_name="index_daily",
-            params={"ts_code": ts_code, "start_date": start_date, "end_date": end_date},
+            api_name=api_name,
+            params=params,
             fields=fields,
             timeout_seconds=timeout_seconds,
         )

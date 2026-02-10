@@ -459,8 +459,8 @@ def run_job(db: Session, job_name: str) -> JobRun:
                 status = "failed"
                 raise RuntimeError("HKEX archive returned 0 rows")
 
-            # only keep latest 90 trading days
-            rows = rows[-90:]
+            # only keep latest ~1 year trading days (approx 252) for UI/history
+            rows = rows[-260:]
 
             inserted = 0
             updated = 0
@@ -557,7 +557,7 @@ def run_job(db: Session, job_name: str) -> JobRun:
             summary = {"tushare": ts_summary}
 
         elif job_name == "backfill_tushare_index":
-            ts_status, ts_summary = _backfill_tushare_index_quotes(db, lookback_days=90)
+            ts_status, ts_summary = _backfill_tushare_index_quotes(db, lookback_days=365)
             status = "success" if ts_status in {"success", "skipped"} else "partial"
             summary = {"tushare": ts_summary}
 
