@@ -48,6 +48,11 @@ AVAILABLE_JOBS: tuple[dict[str, str], ...] = (
         "description": "回填最近 90 天 HSI/SSE/SZSE 日线数据（跳过已存在记录）。",
     },
     {
+        "name": "backfill_cn_halfday",
+        "label": "回填A股半日成交(90天)",
+        "description": "用 Eastmoney 分钟线回填 SSE/SZSE 的半日成交额与全日成交额（用于柱状图和均值）。",
+    },
+    {
         "name": "backfill_hkex",
         "label": "回填HKEX历史",
         "description": "从 HKEX 统计页面回填港股成交额历史（FULL）。",

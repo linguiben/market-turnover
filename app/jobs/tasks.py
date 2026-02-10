@@ -21,6 +21,7 @@ from app.sources.aastocks import fetch_midday_turnover
 from app.sources.aastocks_index import fetch_hsi_snapshot
 from app.sources.tushare_index import TushareIndexDaily, daily_row_asof, fetch_index_daily_history, fetch_latest_index_daily
 from app.sources.tencent_index import fetch_index_daily_history as fetch_tencent_index_daily_history
+from app.sources.eastmoney_index import fetch_minute_kline, aggregate_halfday_and_fullday_amount
 
 
 def _persist_tushare_rows(
@@ -273,6 +274,89 @@ def _backfill_tushare_index_quotes(db: Session, *, lookback_days: int = 90) -> t
     }
 
 
+def _backfill_eastmoney_cn_halfday(db: Session, *, lookback_days: int = 90) -> tuple[str, dict]:
+    """Backfill CN index half-day and full-day turnover amounts using Eastmoney minute kline.
+
+    This is used to populate AM turnover bars and 5/10-day averages for SSE/SZSE.
+    """
+
+    index_map = settings.tushare_index_map()
+    if not index_map:
+        return "skipped", {"enabled": False, "reason": "TUSHARE_INDEX_CODES is empty"}
+
+    target = {k: v for k, v in index_map.items() if k.upper() in {"SSE", "SZSE"}}
+    if not target:
+        return "skipped", {"enabled": False, "reason": "No CN indices configured (need SSE/SZSE)"}
+
+    inserted_source = 0
+    facts_updated = 0
+
+    date_min = None
+    date_max = None
+
+    for code, ts_code in target.items():
+        bars = fetch_minute_kline(ts_code=ts_code, lookback_days=lookback_days, timeout_seconds=settings.HKEX_TIMEOUT_SECONDS)
+        agg = aggregate_halfday_and_fullday_amount(bars=bars)
+
+        index_row = ensure_market_index(db, code)
+
+        for d, item in agg.items():
+            date_min = d if date_min is None or d < date_min else date_min
+            date_max = d if date_max is None or d > date_max else date_max
+
+            # AM session
+            if item.get("am_close") is not None and item.get("am_amount") is not None:
+                add_index_source_record(
+                    db,
+                    index_id=index_row.id,
+                    trade_date=d,
+                    session=SessionType.AM,
+                    source="EASTMONEY",
+                    last=int(round(float(item["am_close"]) * 100)),
+                    change_points=None,
+                    change_pct=None,
+                    turnover_amount=int(item["am_amount"]),
+                    turnover_currency="CNY",
+                    asof_ts=datetime.combine(d, time(11, 30), tzinfo=None),
+                    payload={"ts_code": ts_code, "bars": item.get("bars")},
+                    ok=True,
+                )
+                inserted_source += 1
+                if upsert_index_history_from_sources(db, index_id=index_row.id, trade_date=d, session=SessionType.AM):
+                    facts_updated += 1
+
+            # FULL session
+            if item.get("full_close") is not None and item.get("full_amount") is not None:
+                add_index_source_record(
+                    db,
+                    index_id=index_row.id,
+                    trade_date=d,
+                    session=SessionType.FULL,
+                    source="EASTMONEY",
+                    last=int(round(float(item["full_close"]) * 100)),
+                    change_points=None,
+                    change_pct=None,
+                    turnover_amount=int(item["full_amount"]),
+                    turnover_currency="CNY",
+                    asof_ts=daily_row_asof(d),
+                    payload={"ts_code": ts_code, "bars": item.get("bars")},
+                    ok=True,
+                )
+                inserted_source += 1
+                if upsert_index_history_from_sources(db, index_id=index_row.id, trade_date=d, session=SessionType.FULL):
+                    facts_updated += 1
+
+    return "success", {
+        "enabled": True,
+        "source": "EASTMONEY",
+        "lookback_days": lookback_days,
+        "inserted_source": inserted_source,
+        "facts_updated": facts_updated,
+        "date_from": str(date_min) if date_min else None,
+        "date_to": str(date_max) if date_max else None,
+    }
+
+
 def run_job(db: Session, job_name: str) -> JobRun:
     run = JobRun(job_name=job_name, status="running")
     db.add(run)
@@ -470,6 +554,11 @@ def run_job(db: Session, job_name: str) -> JobRun:
             ts_status, ts_summary = _backfill_tushare_index_quotes(db, lookback_days=90)
             status = "success" if ts_status in {"success", "skipped"} else "partial"
             summary = {"tushare": ts_summary}
+
+        elif job_name == "backfill_cn_halfday":
+            em_status, em_summary = _backfill_eastmoney_cn_halfday(db, lookback_days=90)
+            status = "success" if em_status in {"success", "skipped"} else "partial"
+            summary = {"eastmoney": em_summary}
 
         else:
             raise ValueError(f"Unknown job_name: {job_name}")
