@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
-from datetime import date
+from datetime import date, time
 
 from app.config import settings
 from app.db.models import IndexQuoteSourceRecord, JobRun, HsiQuoteFact, SessionType, TurnoverSourceRecord
