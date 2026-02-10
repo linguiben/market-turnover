@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>股市成交量参考</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <style>
+        /* 隐藏滚动条但允许滚动（视觉上移除上下/左右滚动条） */
+        html { -ms-overflow-style: none; scrollbar-width: none; }
+        html::-webkit-scrollbar { width: 0; height: 0; background: transparent; }
+        body { background-color: #0f172a; color: #f8fafc; overflow: auto; -ms-overflow-style: none; }
+        body::-webkit-scrollbar { width: 0; height: 0; background: transparent; }
+        .card { background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(51, 65, 85, 1); backdrop-filter: blur(8px); }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+    <div class="max-w-7xl mx-auto">
+        <header class="mb-8 flex justify-between items-center">
+            <div>
+                <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-emerald-400">
+                    股市成交量参考
+                </h1>
+                <p class="text-slate-400 text-sm mt-1" style="font-family: cursive;">$私人定制请勿轻信$</p>
+            </div>
+            <div class="text-right text-xs text-slate-500 font-mono">
+                Last Data Sync<br>2026-02-10 16:00:00
+            </div>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            
+            <div class="card rounded-3xl p-6 transition-all hover:border-blue-500/50">
+                <div class="flex justify-between mb-2">
+                    <span class="text-xl font-bold">恒生指数 (HSI)</span>
+                    <div class="text-right">
+                        <div class="text-xl text-rose-500 font-mono font-bold">19,620.30</div>
+                        <div class="mt-1 text-sm flex items-center justify-end gap-2">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-rose-500">
+                                <path d="M6 9l6 6 6-6"></path>
+                            </svg>
+                            <span class="text-rose-500">-0.45%</span>
+                        </div>
+                    </div>
+                </div>
+                <div id="hsi-chart" class="w-full h-[400px]"></div>
+            </div>
+
+            <div class="card rounded-3xl p-6 transition-all hover:border-red-500/50">
+                <div class="flex justify-between mb-2">
+                    <span class="text-xl font-bold">上证指数 (SSE)</span>
+                    <div class="text-right">
+                        <div class="text-xl text-emerald-500 font-mono font-bold">3,250.45</div>
+                        <div class="mt-1 text-sm flex items-center justify-end gap-2">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-emerald-500">
+                                <path d="M6 15l6-6 6 6"></path>
+                            </svg>
+                            <span class="text-emerald-500">+0.55%</span>
+                        </div>
+                    </div>
+                </div>
+                <div id="sse-chart" class="w-full h-[400px]"></div>
+            </div>
+
+            <div class="card rounded-3xl p-6 transition-all hover:border-emerald-500/50">
+                <div class="flex justify-between mb-2">
+                    <span class="text-xl font-bold">深证成指 (SZSE)</span>
+                    <div class="text-right">
+                        <div class="text-xl text-rose-500 font-mono font-bold">10,580.12</div>
+                        <div class="mt-1 text-sm flex items-center justify-end gap-2">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-rose-500">
+                                <path d="M6 9l6 6 6-6"></path>
+                            </svg>
+                            <span class="text-rose-500">-0.12%</span>
+                        </div>
+                    </div>
+                </div>
+                <div id="szse-chart" class="w-full h-[400px]"></div>
+            </div>
+
+        </div>
+
+        <div class="bg-[#1e273a] rounded-2xl p-6 border border-[#2d374d] mt-6">
+            <h2 class="text-lg font-bold mb-4 flex items-center text-slate-200">
+                <span class="w-1.5 h-5 bg-blue-500 rounded-full mr-3"></span>智能行情分析 (Insights)
+            </h2>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
+                <p class="md:col-span-2 text-slate-400 leading-relaxed">
+                    当前恒生指数全日成交量接近历史峰值的 <span class="text-blue-400 font-bold">70%</span>，显示出极强的底部支撑力度。相比之下，上证指数成交量略低于5日均值，处于短期震荡整理阶段，建议关注能否突破上方压力位。
+                </p>
+                <div class="flex gap-10 justify-end">
+                    <div class="text-center">
+                        <div class="text-2xl font-black text-blue-400">67%</div>
+                        <div class="text-[10px] text-slate-500 tracking-tighter">HSI vs MAX</div>
+                    </div>
+                    <div class="text-center">
+                        <div class="text-2xl font-black text-emerald-400">73%</div>
+                        <div class="text-[10px] text-slate-500 tracking-tighter">SSE vs MAX</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        /**
+         * 封装图表配置逻辑
+         * @param {Object} data 包含当日、5日平均、历史最高等数据
+         */
+        function getOption(data) {
+            return {
+                tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+                legend: { 
+                    data: ['当日成交', '5日均值', '10日均值'], 
+                    bottom: '0', 
+                    textStyle: { color: '#94a3b8' } 
+                },
+                grid: { top: '40%', left: '15%', right: '15%', bottom: '15%', containLabel: true },
+                xAxis: {
+                    type: 'category',
+                    data: ['半日成交量', '全日成交量'],
+                    axisLine: { lineStyle: { color: '#334155' } },
+                    axisLabel: { color: '#94a3b8' }
+                },
+                yAxis: {
+                    type: 'value',
+                    splitLine: { lineStyle: { color: '#1e293b' } },
+                    axisLabel: { show: false }
+                },
+                series: [
+                    // 1. 点数仪表盘 (展示在上方)
+                    {
+                        type: 'gauge',
+                        center: ['50%', '20%'],
+                        radius: '38%',
+                        startAngle: 180,
+                        endAngle: 0,
+                        min: 0,
+                        max: data.maxPoints,
+                        axisLine: { lineStyle: { width: 5, color: [[1, '#2d374d']] } },
+                        progress: { show: true, width: 5, itemStyle: { color: '#3b82f6' } },
+                        pointer: { width: 2, length: '65%', itemStyle: { color: '#fbbf24' } },
+                        axisTick: { show: false },
+                        splitLine: { show: false },
+                        axisLabel: { 
+                            show: true, distance: -50, color: '#64748b', fontSize: 10,
+                            formatter: function (value) {
+                                if (value === data.maxPoints) return 'PEAK: ' + value;
+                                return '';
+                            }
+                        },
+                        detail: { 
+                            offsetCenter: [0, '15%'], fontSize: 16, fontWeight: 'bold', 
+                            color: '#ffffff', formatter: '{value}' 
+                        },
+                        data: [{ value: data.todayPoints }]
+                    },
+                    // 2. 当日成交量柱状图
+                    {
+                        name: '当日成交',
+                        type: 'bar',
+                        barWidth: 16,
+                        data: [data.todayVolAM, data.todayVolDay],
+                        itemStyle: { color: '#60a5fa', borderRadius: [2, 2, 0, 0] },
+                        markLine: {
+                            symbol: 'none',
+                            label: { position: 'end', color: '#ef4444', fontSize: 10, formatter: '{b}' },
+                            lineStyle: { type: 'dashed', color: '#ef4444', opacity: 0.6 },
+                            data: [
+                                { 
+                                    yAxis: data.maxVolAM, 
+                                    name: '半日: ' + data.maxVolAM/100 + 'B', 
+                                    label: { position: 'start', color: '#ed2fd7', formatter: '{b}' },
+                                    lineStyle: { type: 'dotted', color: '#ed2fd7', width: 1.2, opacity: 0.9 }
+                                },
+                                { yAxis: data.maxVolDay, name: '全日: ' + data.maxVolDay/100 + 'B', }
+                            ]
+                        }
+                    },
+                    // 3. 5日均值柱状图
+                    {
+                        name: '5日均值',
+                        type: 'bar',
+                        barWidth: 16,
+                        data: [data.avgVolAM, data.avgVolDay],
+                        itemStyle: { color: '#334155', borderRadius: [2, 2, 0, 0] }
+                    },
+                    {
+                        name: '10日均值',
+                        type: 'bar',
+                        barWidth: 16,
+                        data: [data.tenAvgVolAM, data.tenAvgVolDay],
+                        itemStyle: { color: '#475569', borderRadius: [2, 2, 0, 0] }
+                    }
+                ]
+            };
+        }
+
+        // 初始化图表实例并填充模拟数据
+        // 实际开发中，这里的数据应通过 fetch() 从您的后端 API 获取
+        const charts = [
+            {
+                id: 'hsi-chart',
+                data: { todayPoints: 19620, maxPoints: 23000, avgPoints: 19450, todayVolAM: 650, todayVolDay: 1210, avgVolAM: 600, avgVolDay: 1100, tenAvgVolAM: 580, tenAvgVolDay: 1080, maxVolAM: 500, maxVolDay: 1000 }
+            },
+            {
+                id: 'sse-chart',
+                data: { todayPoints: 3250, maxPoints: 3800, avgPoints: 3280, todayVolAM: 3800, todayVolDay: 7200, avgVolAM: 4100, avgVolDay: 7600, tenAvgVolAM: 4050, tenAvgVolDay: 7500, maxVolAM: 500, maxVolDay: 7000 }
+            },
+            {
+                id: 'szse-chart',
+                data: { todayPoints: 10580, maxPoints: 12500, avgPoints: 10400, todayVolAM: 4200, todayVolDay: 8500, avgVolAM: 3900, avgVolDay: 8100, tenAvgVolAM: 3850, tenAvgVolDay: 8000, maxVolAM: 100, maxVolDay: 9000 }
+            }
+        ];
+
+        charts.forEach(item => {
+            const chart = echarts.init(document.getElementById(item.id));
+            chart.setOption(getOption(item.data));
+            // 响应式调整
+            window.addEventListener('resize', () => chart.resize());
+        });
+    </script>
+</body>
+</html>
