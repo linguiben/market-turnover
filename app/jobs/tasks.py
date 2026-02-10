@@ -227,7 +227,9 @@ def _backfill_tushare_index_quotes(db: Session, *, lookback_days: int = 90) -> t
             last=int(round(float(row.close) * 100)),
             change_points=int(round(float(row.change) * 100)) if row.change is not None else None,
             change_pct=int(round(float(row.pct_chg) * 100)) if row.pct_chg is not None else None,
-            turnover_amount=None,
+            # Tencent kline provides a `volume` field; we persist it as turnover_amount so
+            # dashboard bars (today/avg/max) are non-empty.
+            turnover_amount=int(round(float(row.volume))) if row.volume is not None else None,
             turnover_currency="CNY",
             asof_ts=asof,
             payload={"symbol": row.symbol, "raw": row.raw, "volume": row.volume},
@@ -247,7 +249,7 @@ def _backfill_tushare_index_quotes(db: Session, *, lookback_days: int = 90) -> t
             last=int(round(float(row.close) * 100)),
             change_points=int(round(float(row.change) * 100)) if row.change is not None else None,
             change_pct=int(round(float(row.pct_chg) * 100)) if row.pct_chg is not None else None,
-            turnover_amount=None,
+            turnover_amount=int(round(float(row.volume))) if row.volume is not None else None,
             turnover_currency="CNY",
             data_updated_at=asof,
             is_closed=True,
