@@ -441,63 +441,56 @@ def run_job(db: Session, job_name: str) -> JobRun:
             }
 
         elif job_name == "backfill_hkex":
-            rows = []
+            """Backfill HK market FULL-day turnover from HKEX official statistics archive.
+
+            This job must be accurate: it will NOT generate mock data.
+            """
+
+            rows: list = []
             try:
                 rows = fetch_hkex_latest_table()
-            except Exception:
-                rows = []
+            except Exception as e:
+                summary = {"mode": "hkex", "error": str(e)}
+                status = "failed"
+                raise
+
+            if not rows:
+                summary = {"mode": "hkex", "rows": 0}
+                status = "failed"
+                raise RuntimeError("HKEX archive returned 0 rows")
+
+            # only keep latest 90 trading days
+            rows = rows[-90:]
 
             inserted = 0
             updated = 0
 
-            if rows:
-                for r in rows:
-                    rec = TurnoverSourceRecord(
-                        trade_date=r.trade_date,
-                        session=SessionType.FULL,
-                        source="HKEX",
-                        turnover_hkd=r.turnover_hkd,
-                        payload={"is_half_day": r.is_half_day},
-                        ok=True,
-                    )
-                    db.add(rec)
-                    inserted += 1
-                db.commit()
+            for r in rows:
+                rec = TurnoverSourceRecord(
+                    trade_date=r.trade_date,
+                    session=SessionType.FULL,
+                    source="HKEX",
+                    turnover_hkd=r.turnover_hkd,
+                    payload={"is_half_day": r.is_half_day},
+                    ok=True,
+                )
+                db.add(rec)
+                inserted += 1
+            db.commit()
 
-                for r in rows[-80:]:
-                    if upsert_fact_from_sources(db, r.trade_date, SessionType.FULL):
-                        updated += 1
+            for r in rows:
+                if upsert_fact_from_sources(db, r.trade_date, SessionType.FULL):
+                    updated += 1
 
-                summary = {"mode": "hkex", "rows": len(rows), "inserted": inserted, "facts_updated": updated}
-                status = "success"
-
-            else:
-                # POC seed: create last ~35 weekdays FULL turnover so UI has data.
-                from datetime import timedelta
-                import random
-
-                random.seed(42)
-                d = date.today()
-                seeded = 0
-                while seeded < 35:
-                    if d.weekday() < 5:
-                        turnover = random.randint(140_000_000_000, 360_000_000_000)
-                        rec = TurnoverSourceRecord(
-                            trade_date=d,
-                            session=SessionType.FULL,
-                            source="MOCK",
-                            turnover_hkd=turnover,
-                            payload={"seed": True},
-                            ok=True,
-                        )
-                        db.add(rec)
-                        db.commit()
-                        upsert_fact_from_sources(db, d, SessionType.FULL)
-                        seeded += 1
-                    d = d - timedelta(days=1)
-
-                summary = {"mode": "mock_seed", "seeded_days": seeded}
-                status = "partial"
+            summary = {
+                "mode": "hkex",
+                "rows": len(rows),
+                "inserted": inserted,
+                "facts_updated": updated,
+                "date_from": str(rows[0].trade_date),
+                "date_to": str(rows[-1].trade_date),
+            }
+            status = "success"
 
         elif job_name == "fetch_full":
             # Use HK timezone trading date when possible; fallback to local date.

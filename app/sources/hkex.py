@@ -5,10 +5,12 @@ from dataclasses import dataclass
 from datetime import date
 
 import httpx
-from selectolax.parser import HTMLParser
 
 
-HKEX_ARCHIVE_URL = "https://www.hkex.com.hk/Market-Data/Statistics/Consolidated-Reports/Securities-Statistics-Archive/Trading_Value_Volume_And_Number_Of_Deals?sc_lang=zh-HK"
+# HKEX provides the statistics archive as JSON tables; this is the most reliable
+# source for historical daily trading value (turnover).
+# Example file: https://www.hkex.com.hk/eng/stat/smstat/mthbull/rpt_data_statistics_archive_trading_data_2025_2029.json
+HKEX_ARCHIVE_JSON_TEMPLATE = "https://www.hkex.com.hk/eng/stat/smstat/mthbull/rpt_data_statistics_archive_trading_data_{start}_{end}.json"
 
 
 @dataclass
@@ -24,39 +26,53 @@ def _parse_hkex_date(s: str) -> date:
     return date(int(y), int(m), int(d))
 
 
+def _hkex_json_url_for_date(d: date) -> str:
+    # HKEX publishes in 5-year buckets: e.g. 2025_2029
+    start = (d.year // 5) * 5
+    end = start + 4
+    return HKEX_ARCHIVE_JSON_TEMPLATE.format(start=start, end=end)
+
+
 def fetch_hkex_latest_table(timeout_seconds: int = 20) -> list[HkexDayRow]:
-    """Fetches current archive page table (whatever date range HKEX currently serves).
+    """Fetch HKEX securities statistics archive (daily total trading value).
 
-    Note: HKEX archive is often delayed; this still provides an official baseline.
+    This parses HKEX's published JSON table, which is stable and accurate.
     """
+
+    url = _hkex_json_url_for_date(date.today())
+
     with httpx.Client(timeout=timeout_seconds, headers={"User-Agent": "market-turnover/0.1"}) as client:
-        r = client.get(HKEX_ARCHIVE_URL)
+        r = client.get(url)
         r.raise_for_status()
+        payload = r.json()
 
-    html = r.text
-    doc = HTMLParser(html)
+    tables = payload.get("tables") or []
+    if not tables:
+        raise RuntimeError("HKEX archive JSON missing tables")
 
-    # Find the first table under the main content.
-    table = doc.css_first("table")
-    if table is None:
-        raise RuntimeError("HKEX table not found")
+    # The first table contains the daily rows.
+    body = (tables[0].get("body") or [])
+
+    # Convert sparse cell list to row dict
+    by_row: dict[int, dict[int, str]] = {}
+    for cell in body:
+        try:
+            row = int(cell.get("row"))
+            col = int(cell.get("col"))
+        except Exception:
+            continue
+        by_row.setdefault(row, {})[col] = str(cell.get("text") or "").strip()
 
     rows: list[HkexDayRow] = []
-    for tr in table.css("tbody tr"):
-        tds = tr.css("td")
-        if len(tds) < 2:
+    for r, cols in by_row.items():
+        # col0=date, col1='*' or '', col2=value
+        date_text = (cols.get(0) or "").strip()
+        if not re.match(r"^\d{4}/\d{2}/\d{2}$", date_text):
             continue
 
-        date_text = tds[0].text().strip()
-        if not re.match(r"^\d{4}/\d{2}/\d{2}\*?$", date_text):
-            continue
+        is_half_day = (cols.get(1) or "").strip() == "*"
 
-        is_half_day = date_text.endswith("*")
-        if is_half_day:
-            date_text = date_text[:-1]
-
-        val_text = tds[1].text().strip()
-        val_text = val_text.replace(",", "")
+        val_text = (cols.get(2) or "").replace(",", "").strip()
         if not val_text.isdigit():
             continue
 
@@ -68,6 +84,5 @@ def fetch_hkex_latest_table(timeout_seconds: int = 20) -> list[HkexDayRow]:
             )
         )
 
-    # Sort ascending
     rows.sort(key=lambda x: x.trade_date)
     return rows
