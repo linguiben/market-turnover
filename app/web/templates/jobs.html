@@ -1,6 +1,37 @@
 {% extends "base.html" %}
 {% block content %}
-<h2>Job runs</h2>
+<h2>Jobs</h2>
+{% set base = (request.scope.get('root_path') or '') %}
+
+<h3>Available jobs</h3>
+<table>
+  <thead><tr><th>Job</th><th>Description</th><th>Last Status</th><th>Action</th></tr></thead>
+  <tbody>
+  {% for item in available_jobs %}
+    {% set latest = latest_run_by_name.get(item.name) %}
+    <tr>
+      <td><code>{{ item.name }}</code><br><span class="muted">{{ item.label }}</span></td>
+      <td>{{ item.description }}</td>
+      <td>
+        {% if latest %}
+          <strong>{{ latest.status }}</strong><br>
+          <span class="muted">{{ latest.started_at }}</span>
+        {% else %}
+          <span class="muted">never</span>
+        {% endif %}
+      </td>
+      <td>
+        <form method="post" action="{{ base }}/api/jobs/run">
+          <input type="hidden" name="job_name" value="{{ item.name }}" />
+          <button type="submit">Run</button>
+        </form>
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<h3>Run history</h3>
 <table>
   <thead><tr><th>Job</th><th>Started</th><th>Finished</th><th>Status</th><th>Error</th></tr></thead>
   <tbody>

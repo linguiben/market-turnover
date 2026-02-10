@@ -1,35 +1,180 @@
-{% extends "base.html" %}
-{% block content %}
-<h2>Dashboard</h2>
-<p>Today: <code>{{ today }}</code></p>
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>股市成交量参考</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+  <style>
+    html { -ms-overflow-style: none; scrollbar-width: none; }
+    html::-webkit-scrollbar { width: 0; height: 0; background: transparent; }
+    body { background-color: #0f172a; color: #f8fafc; overflow: auto; -ms-overflow-style: none; }
+    body::-webkit-scrollbar { width: 0; height: 0; background: transparent; }
+    .card { background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(51, 65, 85, 1); backdrop-filter: blur(8px); }
+  </style>
+</head>
+<body class="p-4 md:p-8">
+  {% set base = (request.scope.get('root_path') or '') %}
+  <div class="max-w-7xl mx-auto">
+    <header class="mb-8 flex flex-wrap justify-between items-center gap-3">
+      <div>
+        <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-emerald-400">
+          股市成交量参考
+        </h1>
+        <p class="text-slate-400 text-sm mt-1" style="font-family: cursive;">$私人定制请勿轻信$</p>
+      </div>
+      <div class="text-right text-xs text-slate-500 font-mono">
+        Last Data Sync<br>{{ last_data_sync }}
+      </div>
+      <nav class="w-full text-right text-xs text-slate-400 space-x-3">
+        <a class="hover:text-blue-300" href="{{ base }}/recent">Recent</a>
+        <a class="hover:text-blue-300" href="{{ base }}/jobs">Jobs</a>
+      </nav>
+    </header>
 
-<h3>Latest facts</h3>
-<table>
-  <thead><tr><th>Date</th><th>Session</th><th>HSI</th><th>Turnover (億)</th><th>Source</th><th>Quality</th><th>Updated</th></tr></thead>
-  <tbody>
-  {% for row in facts %}
-    {% set q = quotes.get((row.trade_date, row.session)) %}
-    <tr>
-      <td>{{ row.trade_date }}</td>
-      <td>{{ row.session }}</td>
-      <td>{{ format_hsi(q.last if q else none) }}</td>
-      <td>{{ format_yi(row.turnover_hkd) }}</td>
-      <td>{{ row.best_source }}</td>
-      <td>{{ row.quality }}</td>
-      <td>{{ row.updated_at }}</td>
-    </tr>
-  {% endfor %}
-  </tbody>
-</table>
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      {% for card in cards %}
+      <div class="card rounded-3xl p-6 transition-all hover:border-blue-500/50">
+        <div class="flex justify-between mb-2">
+          <span class="text-xl font-bold">{{ card.name }} ({{ card.code }})</span>
+          <div class="text-right">
+            <div class="text-xl font-mono font-bold {{ card.price_class }}">{{ card.last_price }}</div>
+            <div class="mt-1 text-sm flex items-center justify-end gap-2">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="{{ card.change_class }}">
+                <path d="{{ card.arrow_path }}"></path>
+              </svg>
+              <span class="{{ card.change_class }}">{{ card.change_pct }}</span>
+            </div>
+          </div>
+        </div>
+        <div class="mb-3 text-xs text-slate-400 flex justify-between">
+          <span>半日成交: {{ card.today_turnover_am }}</span>
+          <span>全日成交: {{ card.today_turnover_day }}</span>
+        </div>
+        <div id="{{ card.chart_id }}" class="w-full h-[360px]"></div>
+        <div class="mt-2 text-[10px] text-slate-500 text-right">更新时间: {{ card.updated_at }}</div>
+      </div>
+      {% endfor %}
+    </div>
 
-<h3>Manual triggers</h3>
-{% set base = (request.scope.get('root_path') or '') %}
-<form method="post" action="{{ base }}/api/jobs/run">
-  <select name="job_name">
-    <option value="fetch_am">fetch_am</option>
-    <option value="fetch_full">fetch_full</option>
-    <option value="backfill_hkex">backfill_hkex</option>
-  </select>
-  <button type="submit">Run</button>
-</form>
-{% endblock %}
+    <div class="bg-[#1e273a] rounded-2xl p-6 border border-[#2d374d] mt-6">
+      <h2 class="text-lg font-bold mb-4 flex items-center text-slate-200">
+        <span class="w-1.5 h-5 bg-blue-500 rounded-full mr-3"></span>智能行情分析 (Insights)
+      </h2>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
+        <p class="md:col-span-2 text-slate-400 leading-relaxed">{{ insight_text }}</p>
+        <div class="flex gap-10 justify-end">
+          <div class="text-center">
+            <div class="text-2xl font-black text-blue-400">{{ hsi_ratio if hsi_ratio is not none else '--' }}%</div>
+            <div class="text-[10px] text-slate-500 tracking-tighter">HSI vs MAX</div>
+          </div>
+          <div class="text-center">
+            <div class="text-2xl font-black text-emerald-400">{{ sse_ratio if sse_ratio is not none else '--' }}%</div>
+            <div class="text-[10px] text-slate-500 tracking-tighter">SSE vs MAX</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function getOption(data) {
+      const gaugeMax = data.maxPoints > 0 ? data.maxPoints : 1;
+      return {
+        tooltip: { trigger: "axis", axisPointer: { type: "shadow" } },
+        legend: {
+          data: ["当日成交", "5日均值", "10日均值"],
+          bottom: "0",
+          textStyle: { color: "#94a3b8" }
+        },
+        grid: { top: "40%", left: "15%", right: "15%", bottom: "15%", containLabel: true },
+        xAxis: {
+          type: "category",
+          data: ["半日成交量(亿)", "全日成交量(亿)"],
+          axisLine: { lineStyle: { color: "#334155" } },
+          axisLabel: { color: "#94a3b8", fontSize: 10 }
+        },
+        yAxis: {
+          type: "value",
+          splitLine: { lineStyle: { color: "#1e293b" } },
+          axisLabel: { color: "#94a3b8", fontSize: 10 }
+        },
+        series: [
+          {
+            type: "gauge",
+            center: ["50%", "20%"],
+            radius: "38%",
+            startAngle: 180,
+            endAngle: 0,
+            min: 0,
+            max: gaugeMax,
+            axisLine: { lineStyle: { width: 5, color: [[1, "#2d374d"]] } },
+            progress: { show: true, width: 5, itemStyle: { color: "#3b82f6" } },
+            pointer: { width: 2, length: "65%", itemStyle: { color: "#fbbf24" } },
+            axisTick: { show: false },
+            splitLine: { show: false },
+            axisLabel: {
+              show: true,
+              distance: -50,
+              color: "#64748b",
+              fontSize: 10,
+              formatter: function (value) {
+                if (value === gaugeMax) return "PEAK: " + gaugeMax.toFixed(2);
+                return "";
+              }
+            },
+            detail: {
+              offsetCenter: [0, "15%"],
+              fontSize: 16,
+              fontWeight: "bold",
+              color: "#ffffff",
+              formatter: "{value}"
+            },
+            data: [{ value: data.todayPoints }]
+          },
+          {
+            name: "当日成交",
+            type: "bar",
+            barWidth: 16,
+            data: [data.todayVolAM, data.todayVolDay],
+            itemStyle: { color: "#60a5fa", borderRadius: [2, 2, 0, 0] },
+            markLine: {
+              symbol: "none",
+              label: { position: "end", color: "#ef4444", fontSize: 10, formatter: "{b}" },
+              lineStyle: { type: "dashed", color: "#ef4444", opacity: 0.6 },
+              data: [
+                { yAxis: data.maxVolAM, name: "半日峰值: " + data.maxVolAM.toFixed(2) + "亿" },
+                { yAxis: data.maxVolDay, name: "全日峰值: " + data.maxVolDay.toFixed(2) + "亿" }
+              ]
+            }
+          },
+          {
+            name: "5日均值",
+            type: "bar",
+            barWidth: 16,
+            data: [data.avgVolAM, data.avgVolDay],
+            itemStyle: { color: "#334155", borderRadius: [2, 2, 0, 0] }
+          },
+          {
+            name: "10日均值",
+            type: "bar",
+            barWidth: 16,
+            data: [data.tenAvgVolAM, data.tenAvgVolDay],
+            itemStyle: { color: "#475569", borderRadius: [2, 2, 0, 0] }
+          }
+        ]
+      };
+    }
+
+    const charts = {{ charts | tojson }};
+    charts.forEach(item => {
+      const node = document.getElementById(item.id);
+      if (!node) return;
+      const chart = echarts.init(node);
+      chart.setOption(getOption(item.data));
+      window.addEventListener("resize", () => chart.resize());
+    });
+  </script>
+</body>
+</html>
