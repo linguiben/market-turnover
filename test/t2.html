@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>极简指数追踪</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <style>
+        .glass-card { background: rgba(255, 255, 255, 0.8); backdrop-filter: blur(10px); border: 1px solid rgba(230, 230, 230, 1); }
+        .index-value { font-family: 'Monaco', monospace; }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-900 p-6">
+
+<div class="max-w-7xl mx-auto">
+    <header class="mb-10 flex justify-between items-end">
+        <div>
+            <h1 class="text-3xl font-bold tracking-tight">市场概览</h1>
+            <p class="text-gray-500 mt-2">最近 30 日成交量与点数趋势对比</p>
+        </div>
+        <div class="text-right text-sm text-gray-400">最后同步: 2026-02-10 16:30</div>
+    </header>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        
+        <div class="glass-card rounded-3xl p-6 shadow-sm hover:shadow-md transition-shadow">
+            <div class="flex justify-between items-start mb-4">
+                <div>
+                    <h2 class="text-xl font-bold">恒生指数</h2>
+                    <span class="text-xs font-medium text-gray-400">HSI.HK</span>
+                </div>
+                <div class="text-right">
+                    <div class="text-2xl font-bold text-red-500 index-value">19,620.30</div>
+                    <div class="text-xs text-red-400">+1.25%</div>
+                </div>
+            </div>
+            <div id="hsi-chart" style="width: 100%; height: 280px;"></div>
+            <div class="mt-4 grid grid-cols-2 gap-4 border-t pt-4 text-sm">
+                <div><span class="text-gray-400">半日成交</span> <b class="block">650.2 亿</b></div>
+                <div><span class="text-gray-400">全日成交</span> <b class="block text-blue-600">1,210.8 亿</b></div>
+            </div>
+        </div>
+
+        <div class="glass-card rounded-3xl p-6 shadow-sm">
+            <div class="flex justify-between items-start mb-4">
+                <h2 class="text-xl font-bold">深证成指</h2>
+                <div class="text-2xl font-bold text-green-500 index-value">10,580.12</div>
+            </div>
+            <div id="szse-chart" style="width: 100%; height: 280px;"></div>
+            <div class="mt-4 grid grid-cols-2 gap-4 border-t pt-4 text-sm">
+                <div><span class="text-gray-400">半日成交</span> <b class="block">4,200 亿</b></div>
+                <div><span class="text-gray-400">全日成交</span> <b class="block text-blue-600">8,500 亿</b></div>
+            </div>
+        </div>
+
+        <div class="glass-card rounded-3xl p-6 shadow-sm">
+            <div class="flex justify-between items-start mb-4">
+                <h2 class="text-xl font-bold">上证指数</h2>
+                <div class="text-2xl font-bold text-red-500 index-value">3,250.45</div>
+            </div>
+            <div id="sse-chart" style="width: 100%; height: 280px;"></div>
+            <div class="mt-4 grid grid-cols-2 gap-4 border-t pt-4 text-sm">
+                <div><span class="text-gray-400">半日成交</span> <b class="block">3,800 亿</b></div>
+                <div><span class="text-gray-400">全日成交</span> <b class="block text-blue-600">7,200 亿</b></div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<script>
+    // 简易 ECharts 配置示例
+    const commonOption = {
+        grid: { left: '3%', right: '3%', bottom: '3%', top: '10%', containLabel: true },
+        xAxis: { type: 'category', data: Array.from({length: 30}, (_, i) => i + 1), show: false },
+        yAxis: [
+            { type: 'value', scale: true, show: false }, // 点数轴
+            { type: 'value', show: false }               // 成交量轴
+        ],
+        series: [
+            {
+                name: '成交量',
+                type: 'bar',
+                yAxisIndex: 1,
+                itemStyle: { color: '#e5e7eb' },
+                data: [/* 30日数据 */]
+            },
+            {
+                name: '收盘点数',
+                type: 'line',
+                smooth: true,
+                symbol: 'none',
+                lineStyle: { width: 3, color: '#3b82f6' },
+                data: [/* 30日数据 */]
+            }
+        ]
+    };
+    // 初始化三个图表 (此处仅示意)
+    echarts.init(document.getElementById('hsi-chart')).setOption(commonOption);
+</script>
+</body>
+</html>
