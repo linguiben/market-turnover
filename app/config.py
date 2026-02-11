@@ -18,6 +18,8 @@ class Settings(BaseSettings):
 
     BASIC_AUTH_USER: str | None = None
     BASIC_AUTH_PASS: str | None = None
+    AUTH_SECRET_KEY: str = "dev-only-change-me"
+    AUTH_SESSION_MAX_AGE_SECONDS: int = 7 * 24 * 3600
 
     DATABASE_URL: str | None = None
     POSTGRES_DB: str | None = None

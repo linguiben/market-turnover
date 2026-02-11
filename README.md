@@ -45,13 +45,13 @@ deactivate # Deactivate venv
 数据库迁移: alembic upgrade head。
 1. Docker 方式
 
-  docker compose up -d --build
-  docker compose ps
-  docker compose logs --tail=100 web
+  docker compose up -d --build  
+  docker compose ps  
+  docker compose logs --tail=100 web  
 
   2. 本地 venv 方式
 
-  source .venv/bin/activate
+  source .venv/bin/activate  
   uvicorn app.main:app --host 0.0.0.0 --port 8000
 
   启动后先测：

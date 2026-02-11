@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-
-from apscheduler.schedulers.background import BackgroundScheduler
 
 from app.config import settings
 from app.db.session import SessionLocal
@@ -19,6 +19,7 @@ from app.web.visit_logs import add_visit_logging
 
 base_path = settings.BASE_PATH.rstrip("/")
 logger = logging.getLogger(__name__)
+favicon_path = Path("app/web/static/favicon.ico")
 
 _scheduler: BackgroundScheduler | None = None
 
@@ -146,3 +147,13 @@ def healthz():
 @app.get(f"{base_path}/healthz")
 def healthz_prefixed():
     return {"ok": True, "app": settings.APP_NAME, "base_path": base_path}
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon_root():
+    return FileResponse(favicon_path)
+
+
+@app.get(f"{base_path}/favicon.ico", include_in_schema=False)
+def favicon_prefixed():
+    return FileResponse(favicon_path)

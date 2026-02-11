@@ -1,5 +1,6 @@
 -- 0007_user_visit_logs.sql
 -- User visit & login audit logs
+BEGIN;
 
 CREATE TABLE IF NOT EXISTS user_visit_logs (
   id BIGSERIAL PRIMARY KEY, -- 自增主键
@@ -38,3 +39,71 @@ CREATE INDEX IF NOT EXISTS idx_visit_logs_ip ON user_visit_logs USING GIST (ip_a
 
 -- 4. 来源分析：统计哪些外部链接带来的流量最多
 CREATE INDEX IF NOT EXISTS idx_visit_logs_referer ON user_visit_logs (referer_url) WHERE referer_url IS NOT NULL;
+
+-- 说明: 用户表 DDL（用户名使用 email 地址）
+
+CREATE TABLE IF NOT EXISTS app_user (
+    id              BIGSERIAL PRIMARY KEY,
+    username        VARCHAR(320) NOT NULL, -- 用户名，必须为 email
+    email           VARCHAR(320) NOT NULL,
+    password_hash   VARCHAR(255) NOT NULL,
+    display_name    VARCHAR(64),
+    is_active       BOOLEAN      NOT NULL DEFAULT TRUE,
+    is_superuser    BOOLEAN      NOT NULL DEFAULT FALSE,
+    last_login_at   TIMESTAMPTZ,
+    created_at      TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    updated_at      TIMESTAMPTZ  NOT NULL DEFAULT now(),
+
+    -- 强约束: username 与 email 必须一致，并统一小写存储
+    CONSTRAINT ck_app_user_username_eq_email CHECK (username = email),
+    CONSTRAINT ck_app_user_email_lowercase CHECK (email = lower(email)),
+    CONSTRAINT ck_app_user_username_lowercase CHECK (username = lower(username)),
+    CONSTRAINT ck_app_user_email_format CHECK (
+        email ~ '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$'
+    ),
+
+    CONSTRAINT uq_app_user_username UNIQUE (username),
+    CONSTRAINT uq_app_user_email UNIQUE (email)
+);
+
+CREATE INDEX IF NOT EXISTS ix_app_user_active
+    ON app_user (is_active);
+
+CREATE INDEX IF NOT EXISTS ix_app_user_created_at
+    ON app_user (created_at DESC);
+
+-- 用户行为累计计数（全局一行）
+CREATE TABLE IF NOT EXISTS user_activity_counter (
+    id              SMALLINT    PRIMARY KEY DEFAULT 1,
+    visit_count     BIGINT      NOT NULL DEFAULT 0, -- 访问次数
+    login_count     BIGINT      NOT NULL DEFAULT 0, -- 登录次数
+    last_visit_at   TIMESTAMPTZ,
+    last_login_at   TIMESTAMPTZ,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT ck_user_activity_counter_singleton CHECK (id = 1),
+    CONSTRAINT ck_user_activity_counter_visit_nonneg CHECK (visit_count >= 0),
+    CONSTRAINT ck_user_activity_counter_login_nonneg CHECK (login_count >= 0)
+);
+
+CREATE INDEX IF NOT EXISTS ix_user_activity_counter_updated_at
+    ON user_activity_counter (updated_at DESC);
+
+-- 用户行为按日计数（全局每天一行）
+CREATE TABLE IF NOT EXISTS user_activity_counter_daily (
+    stat_date       DATE        PRIMARY KEY,
+    visit_count     BIGINT      NOT NULL DEFAULT 0,
+    login_count     BIGINT      NOT NULL DEFAULT 0,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT ck_user_activity_daily_visit_nonneg CHECK (visit_count >= 0),
+    CONSTRAINT ck_user_activity_daily_login_nonneg CHECK (login_count >= 0)
+);
+
+CREATE INDEX IF NOT EXISTS ix_user_activity_counter_daily_date
+    ON user_activity_counter_daily (stat_date DESC);
+
+CREATE INDEX IF NOT EXISTS ix_user_activity_counter_daily_updated_at
+    ON user_activity_counter_daily (updated_at DESC);
+
+COMMIT;

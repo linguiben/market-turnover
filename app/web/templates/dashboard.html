@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>股市成交量参考</title>
+  <link rel="icon" href="{{ (request.scope.get('root_path') or '') }}/favicon.ico" />
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
   <style>
@@ -28,8 +29,14 @@
         Last Data Sync<br>{{ last_data_sync }}
       </div>
       <nav class="w-full text-right text-xs text-slate-400 space-x-3">
-        <a class="hover:text-blue-300" href="{{ base }}/recent">Recent</a>
+        <span class="text-slate-400">Visited: {{ visited_count }}</span>
         <a class="hover:text-blue-300" href="{{ base }}/jobs">Jobs</a>
+        {% if current_user %}
+          <span class="text-slate-500">{{ current_user.email }}</span>
+          <form method="post" action="{{ base }}/logout" class="inline">
+            <button type="submit" class="hover:text-blue-300">Logout</button>
+          </form>
+        {% endif %}
       </nav>
     </header>
 

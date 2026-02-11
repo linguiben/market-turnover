@@ -4,6 +4,7 @@ import enum
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    CheckConstraint,
     Column,
     Date,
     DateTime,
@@ -333,6 +334,36 @@ class JobRun(Base):
     status = Column(String(16), nullable=False, default="running")  # running/success/failed/partial
     summary = Column(JSONB, nullable=True)
     error = Column(Text, nullable=True)
+
+
+class AppUser(Base):
+    __tablename__ = "app_user"
+    __table_args__ = (
+        CheckConstraint("username = email", name="ck_app_user_username_eq_email"),
+        CheckConstraint("email = lower(email)", name="ck_app_user_email_lowercase"),
+        CheckConstraint("username = lower(username)", name="ck_app_user_username_lowercase"),
+        CheckConstraint(
+            r"email ~ '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$'",
+            name="ck_app_user_email_format",
+        ),
+        UniqueConstraint("username", name="uq_app_user_username"),
+        UniqueConstraint("email", name="uq_app_user_email"),
+    )
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    username = Column(String(320), nullable=False)
+    email = Column(String(320), nullable=False)
+    password_hash = Column(String(255), nullable=False)
+    display_name = Column(String(64), nullable=True)
+    is_active = Column(Boolean, nullable=False, default=True)
+    is_superuser = Column(Boolean, nullable=False, default=False)
+    last_login_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+
+Index("ix_app_user_active", AppUser.is_active)
+Index("ix_app_user_created_at", AppUser.created_at.desc())
 
 
 class UserVisitLog(Base):

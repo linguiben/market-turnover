@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>注册</h2>
+{% if error %}
+  <p style="color:#b91c1c;">{{ error }}</p>
+{% endif %}
+<form method="post" action="{{ (request.scope.get('root_path') or '') }}/register" style="max-width:420px; display:grid; gap:10px;">
+  <input type="hidden" name="next_path" value="{{ next_path }}" />
+  <label>
+    邮箱（将作为用户名）
+    <input type="email" name="email" value="{{ email }}" required style="width:100%;" />
+  </label>
+  <label>
+    显示名（可选）
+    <input type="text" name="display_name" value="{{ display_name }}" style="width:100%;" />
+  </label>
+  <label>
+    密码
+    <input type="password" name="password" required style="width:100%;" />
+  </label>
+  <label>
+    确认密码
+    <input type="password" name="password_confirm" required style="width:100%;" />
+  </label>
+  <button type="submit">注册</button>
+</form>
+<p class="muted">
+  已有账号？
+  <a href="{{ (request.scope.get('root_path') or '') }}/login?next={{ next_path | urlencode }}">去登录</a>
+</p>
+{% endblock %}

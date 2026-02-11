@@ -8,6 +8,8 @@ from fastapi import FastAPI, Request, Response
 
 from app.db.models import UserVisitLog
 from app.db.session import SessionLocal
+from app.web.activity_counter import increment_activity_counter
+from app.web.auth import AUTH_COOKIE_NAME, parse_session_user_id
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +90,7 @@ def add_visit_logging(app: FastAPI) -> None:
                 db = SessionLocal()
                 try:
                     row = UserVisitLog(
-                        user_id=None,
+                        user_id=parse_session_user_id(request.cookies.get(AUTH_COOKIE_NAME)),
                         ip_address=ip_str,
                         session_id=request.cookies.get("session_id") or request.cookies.get("session"),
                         action_type="visit",
@@ -101,6 +103,7 @@ def add_visit_logging(app: FastAPI) -> None:
                         request_headers=_safe_headers(request.headers),
                     )
                     db.add(row)
+                    increment_activity_counter(db, event="visit")
                     db.commit()
                 finally:
                     db.close()

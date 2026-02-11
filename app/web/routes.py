@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import ipaddress
 from datetime import date
-from datetime import datetime, time, timedelta
+from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import sqlalchemy as sa
@@ -9,10 +10,12 @@ import sqlalchemy as sa
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.db.models import (
+    AppUser,
     HsiQuoteFact,
     IndexQuoteHistory,
     IndexRealtimeSnapshot,
@@ -20,8 +23,21 @@ from app.db.models import (
     MarketIndex,
     SessionType,
     TurnoverFact,
+    UserVisitLog,
 )
 from app.jobs.tasks import run_job
+from app.web.activity_counter import get_global_visited_count, increment_activity_counter
+from app.web.auth import (
+    build_login_redirect,
+    clear_login_cookie,
+    get_current_user,
+    hash_password,
+    is_valid_email,
+    normalize_email,
+    safe_next_path,
+    set_login_cookie,
+    verify_password,
+)
 
 router = APIRouter()
 
@@ -283,9 +299,58 @@ def _fmt_sync_time(value: datetime | None) -> str:
     return value.strftime("%Y-%m-%d %H:%M:%S")
 
 
+def _template_context(request: Request, *, current_user: AppUser | None, **kwargs):
+    data = {"request": request, "current_user": current_user}
+    data.update(kwargs)
+    return data
+
+
+def _extract_client_ip_for_log(request: Request) -> str:
+    xff = request.headers.get("x-forwarded-for")
+    if xff:
+        raw = xff.split(",", 1)[0].strip()
+    else:
+        raw = (request.headers.get("x-real-ip") or "").strip()
+    if not raw and request.client and request.client.host:
+        raw = request.client.host
+    if not raw:
+        return "127.0.0.1"
+    try:
+        ipaddress.ip_address(raw)
+        return raw
+    except ValueError:
+        return "127.0.0.1"
+
+
+def _append_auth_visit_log(db: Session, request: Request, *, user_id: int, action_type: str) -> None:
+    try:
+        row = UserVisitLog(
+            user_id=user_id,
+            ip_address=_extract_client_ip_for_log(request),
+            session_id=None,
+            action_type=action_type,
+            user_agent=request.headers.get("user-agent"),
+            browser_family=None,
+            os_family=None,
+            device_type=None,
+            request_url=str(request.url),
+            referer_url=request.headers.get("referer"),
+            request_headers=None,
+        )
+        db.add(row)
+        db.commit()
+    except Exception:
+        db.rollback()
+
+
 @router.get("/", response_class=HTMLResponse)
-def dashboard(request: Request, db: Session = Depends(get_db)):
+def dashboard(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: AppUser | None = Depends(get_current_user),
+):
     today = date.today()
+    visited_count = get_global_visited_count(db)
 
     market_indexes = (
         db.query(MarketIndex)
@@ -527,22 +592,31 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
 
     return templates.TemplateResponse(
         "dashboard.html",
-        {
-            "request": request,
-            "today": today.isoformat(),
-            "cards": cards,
-            "charts": chart_items,
-            "last_data_sync": last_data_sync,
-            "insight_text": insight_text,
-            "hsi_ratio": hsi_ratio,
-            "sse_ratio": sse_ratio,
-            "szse_ratio": szse_ratio,
-        },
+        _template_context(
+            request,
+            current_user=current_user,
+            today=today.isoformat(),
+            cards=cards,
+            charts=chart_items,
+            last_data_sync=last_data_sync,
+            visited_count=visited_count,
+            insight_text=insight_text,
+            hsi_ratio=hsi_ratio,
+            sse_ratio=sse_ratio,
+            szse_ratio=szse_ratio,
+        ),
     )
 
 
 @router.get("/recent", response_class=HTMLResponse)
-def recent(request: Request, db: Session = Depends(get_db)):
+def recent(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: AppUser | None = Depends(get_current_user),
+):
+    if current_user is None:
+        return build_login_redirect(request)
+
     facts = (
         db.query(TurnoverFact)
         .order_by(TurnoverFact.trade_date.desc(), TurnoverFact.session.asc())
@@ -560,11 +634,21 @@ def recent(request: Request, db: Session = Depends(get_db)):
         )
         quotes = {(q.trade_date, q.session): q for q in qs}
 
-    return templates.TemplateResponse("recent.html", {"request": request, "facts": facts, "quotes": quotes})
+    return templates.TemplateResponse(
+        "recent.html",
+        _template_context(request, current_user=current_user, facts=facts, quotes=quotes),
+    )
 
 
 @router.get("/jobs", response_class=HTMLResponse)
-def jobs(request: Request, db: Session = Depends(get_db)):
+def jobs(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: AppUser | None = Depends(get_current_user),
+):
+    if current_user is None:
+        return build_login_redirect(request)
+
     runs = db.query(JobRun).order_by(JobRun.started_at.desc()).limit(50).all()
     latest_run_by_name: dict[str, JobRun] = {}
     for row in runs:
@@ -572,17 +656,27 @@ def jobs(request: Request, db: Session = Depends(get_db)):
             latest_run_by_name[row.job_name] = row
     return templates.TemplateResponse(
         "jobs.html",
-        {
-            "request": request,
-            "jobs": runs,
-            "available_jobs": AVAILABLE_JOBS,
-            "latest_run_by_name": latest_run_by_name,
-        },
+        _template_context(
+            request,
+            current_user=current_user,
+            jobs=runs,
+            available_jobs=AVAILABLE_JOBS,
+            latest_run_by_name=latest_run_by_name,
+        ),
     )
 
 
 @router.post("/api/jobs/run")
-async def jobs_run(request: Request, job_name: str = Form(...), db: Session = Depends(get_db)):
+async def jobs_run(
+    request: Request,
+    job_name: str = Form(...),
+    db: Session = Depends(get_db),
+    current_user: AppUser | None = Depends(get_current_user),
+):
+    if current_user is None:
+        target = request.url.path.replace("/api/jobs/run", "/jobs")
+        return build_login_redirect(request, next_path=target)
+
     form = await request.form()
 
     params: dict = {}
@@ -610,3 +704,174 @@ async def jobs_run(request: Request, job_name: str = Form(...), db: Session = De
     run_job(db, job_name, params=params or None)
     base = (request.scope.get("root_path") or "").rstrip("/")
     return RedirectResponse(url=f"{base}/jobs", status_code=303)
+
+
+@router.get("/register", response_class=HTMLResponse)
+def register_page(request: Request, current_user: AppUser | None = Depends(get_current_user)):
+    next_path = safe_next_path(request.query_params.get("next"), fallback="/jobs")
+    if current_user is not None:
+        return RedirectResponse(url=next_path, status_code=303)
+    return templates.TemplateResponse(
+        "register.html",
+        _template_context(
+            request,
+            current_user=None,
+            next_path=next_path,
+            email="",
+            display_name="",
+            error=None,
+        ),
+    )
+
+
+@router.post("/register", response_class=HTMLResponse)
+def register_submit(
+    request: Request,
+    email: str = Form(...),
+    password: str = Form(...),
+    password_confirm: str = Form(...),
+    display_name: str = Form(""),
+    next_path: str = Form("/jobs"),
+    db: Session = Depends(get_db),
+    current_user: AppUser | None = Depends(get_current_user),
+):
+    safe_next = safe_next_path(next_path, fallback="/jobs")
+    if current_user is not None:
+        return RedirectResponse(url=safe_next, status_code=303)
+
+    email_n = normalize_email(email)
+    display_name = display_name.strip()
+
+    error = None
+    if not is_valid_email(email_n):
+        error = "邮箱格式无效。"
+    elif len(password) < 8:
+        error = "密码至少需要 8 位。"
+    elif password != password_confirm:
+        error = "两次输入的密码不一致。"
+    elif db.query(AppUser.id).filter(AppUser.email == email_n).first() is not None:
+        error = "该邮箱已注册。"
+
+    if error is not None:
+        return templates.TemplateResponse(
+            "register.html",
+            _template_context(
+                request,
+                current_user=None,
+                next_path=safe_next,
+                email=email_n,
+                display_name=display_name,
+                error=error,
+            ),
+            status_code=400,
+        )
+
+    user = AppUser(
+        username=email_n,
+        email=email_n,
+        password_hash=hash_password(password),
+        display_name=display_name or None,
+        is_active=True,
+        is_superuser=False,
+        last_login_at=datetime.now(timezone.utc),
+    )
+    db.add(user)
+    try:
+        db.commit()
+        db.refresh(user)
+    except IntegrityError:
+        db.rollback()
+        return templates.TemplateResponse(
+            "register.html",
+            _template_context(
+                request,
+                current_user=None,
+                next_path=safe_next,
+                email=email_n,
+                display_name=display_name,
+                error="该邮箱已注册。",
+            ),
+            status_code=400,
+        )
+
+    _append_auth_visit_log(db, request, user_id=int(user.id), action_type="register")
+    response = RedirectResponse(url=safe_next, status_code=303)
+    set_login_cookie(response, int(user.id))
+    return response
+
+
+@router.get("/login", response_class=HTMLResponse)
+def login_page(request: Request, current_user: AppUser | None = Depends(get_current_user)):
+    next_path = safe_next_path(request.query_params.get("next"), fallback="/jobs")
+    if current_user is not None:
+        return RedirectResponse(url=next_path, status_code=303)
+    return templates.TemplateResponse(
+        "login.html",
+        _template_context(request, current_user=None, next_path=next_path, email="", error=None),
+    )
+
+
+@router.post("/login", response_class=HTMLResponse)
+def login_submit(
+    request: Request,
+    email: str = Form(...),
+    password: str = Form(...),
+    next_path: str = Form("/jobs"),
+    db: Session = Depends(get_db),
+    current_user: AppUser | None = Depends(get_current_user),
+):
+    safe_next = safe_next_path(next_path, fallback="/jobs")
+    if current_user is not None:
+        return RedirectResponse(url=safe_next, status_code=303)
+
+    email_n = normalize_email(email)
+    user = db.query(AppUser).filter(AppUser.email == email_n).first()
+    if user is None or not verify_password(password, user.password_hash):
+        return templates.TemplateResponse(
+            "login.html",
+            _template_context(
+                request,
+                current_user=None,
+                next_path=safe_next,
+                email=email_n,
+                error="邮箱或密码错误。",
+            ),
+            status_code=401,
+        )
+    if not user.is_active:
+        return templates.TemplateResponse(
+            "login.html",
+            _template_context(
+                request,
+                current_user=None,
+                next_path=safe_next,
+                email=email_n,
+                error="用户已被禁用。",
+            ),
+            status_code=403,
+        )
+
+    user.last_login_at = datetime.now(timezone.utc)
+    db.add(user)
+    db.commit()
+
+    _append_auth_visit_log(db, request, user_id=int(user.id), action_type="login")
+    increment_activity_counter(db, event="login")
+    db.commit()
+    response = RedirectResponse(url=safe_next, status_code=303)
+    set_login_cookie(response, int(user.id))
+    return response
+
+
+@router.post("/logout")
+def logout(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: AppUser | None = Depends(get_current_user),
+):
+    if current_user is not None:
+        _append_auth_visit_log(db, request, user_id=int(current_user.id), action_type="logout")
+    base = (request.scope.get("root_path") or "").rstrip("/")
+    response = RedirectResponse(url=f"{base}/", status_code=303)
+    clear_login_cookie(response)
+    return response
