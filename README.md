@@ -74,6 +74,9 @@ deactivate # Deactivate venv
   # 回填最近90天指数（日线，Tushare）
   curl -X POST -F 'job_name=backfill_tushare_index' http://localhost:8000/market-turnover/api/jobs/run
 
+  # 回填分钟K线（SSE/SZSE：1m近2天 + 5m近90天）
+  curl -X POST -F 'job_name=backfill_intraday_kline' http://localhost:8000/market-turnover/api/jobs/run
+
   # 回填HKEX历史
   curl -X POST -F 'job_name=backfill_hkex' http://localhost:8000/market-turnover/api/jobs/run
   # from https://www.hkex.com.hk/Market-Data/Statistics/Consolidated-Reports/

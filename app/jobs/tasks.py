@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 import traceback
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from datetime import date, time
 
 from app.config import settings
-from app.db.models import IndexQuoteSourceRecord, JobRun, HsiQuoteFact, SessionType, TurnoverSourceRecord
+from app.db.models import IndexKlineSourceRecord, IndexQuoteSourceRecord, JobRun, HsiQuoteFact, KlineInterval, SessionType, TurnoverSourceRecord
 from app.services.index_quote_resolver import (
     add_index_source_record,
     ensure_market_index,
@@ -364,6 +365,123 @@ def _backfill_eastmoney_cn_halfday(db: Session, *, lookback_days: int = 90) -> t
     }
 
 
+def _persist_eastmoney_kline_rows(
+    db: Session,
+    *,
+    code: str,
+    ts_code: str,
+    klt: str,
+    lookback_days: int,
+) -> dict[str, int | str | None]:
+    if klt not in {"1", "5"}:
+        raise ValueError(f"unsupported klt: {klt}")
+
+    bars = fetch_minute_kline(
+        ts_code=ts_code,
+        lookback_days=lookback_days,
+        timeout_seconds=settings.HKEX_TIMEOUT_SECONDS,
+        klt=klt,
+    )
+    if not bars:
+        return {
+            "rows": 0,
+            "inserted": 0,
+            "interval": "1m" if klt == "1" else "5m",
+            "date_from": None,
+            "date_to": None,
+        }
+
+    index_row = ensure_market_index(db, code)
+    interval = KlineInterval.M1 if klt == "1" else KlineInterval.M5
+    cn_tz = timezone(timedelta(hours=8))
+
+    values: list[dict] = []
+    for bar in bars:
+        bar_time = bar.dt.replace(tzinfo=cn_tz)
+        values.append(
+            {
+                "index_id": index_row.id,
+                "interval": interval.value,
+                "bar_time": bar_time,
+                "trade_date": bar.trade_date,
+                "source": "EASTMONEY",
+                "open": int(round(float(bar.open) * 100)) if bar.open is not None else None,
+                "high": int(round(float(bar.high) * 100)) if bar.high is not None else None,
+                "low": int(round(float(bar.low) * 100)) if bar.low is not None else None,
+                "close": int(round(float(bar.close) * 100)) if bar.close is not None else None,
+                "volume": int(round(float(bar.volume))) if bar.volume is not None else None,
+                "turnover_amount": int(round(float(bar.amount))) if bar.amount is not None else None,
+                "turnover_currency": "CNY",
+                "asof_ts": bar_time,
+                "payload": {"ts_code": ts_code, "klt": klt, "raw": bar.raw},
+                "ok": True,
+                "error": None,
+            }
+        )
+
+    stmt = pg_insert(IndexKlineSourceRecord.__table__).values(values)
+    stmt = stmt.on_conflict_do_nothing(
+        index_elements=["index_id", "interval", "bar_time", "source"],
+    ).returning(IndexKlineSourceRecord.id)
+    inserted_ids = list(db.execute(stmt).scalars())
+    db.commit()
+
+    dates = sorted({bar.trade_date for bar in bars})
+    return {
+        "rows": len(values),
+        "inserted": len(inserted_ids),
+        "interval": interval.value,
+        "date_from": str(dates[0]) if dates else None,
+        "date_to": str(dates[-1]) if dates else None,
+    }
+
+
+def _backfill_intraday_kline_source(db: Session, *, lookback_days_5m: int = 90, lookback_days_1m: int = 2) -> tuple[str, dict]:
+    index_map = settings.tushare_index_map()
+    if not index_map:
+        return "skipped", {"enabled": False, "reason": "TUSHARE_INDEX_CODES is empty"}
+
+    target = {k: v for k, v in index_map.items() if k.upper() in {"SSE", "SZSE"}}
+    if not target:
+        return "skipped", {"enabled": False, "reason": "No CN indices configured (need SSE/SZSE)"}
+
+    written = 0
+    rows = 0
+    details: dict[str, dict] = {}
+    errors: dict[str, str] = {}
+
+    for code, ts_code in target.items():
+        per_code: dict[str, dict] = {}
+        for klt, days in (("1", lookback_days_1m), ("5", lookback_days_5m)):
+            key = "1m" if klt == "1" else "5m"
+            try:
+                stats = _persist_eastmoney_kline_rows(
+                    db,
+                    code=code,
+                    ts_code=ts_code,
+                    klt=klt,
+                    lookback_days=days,
+                )
+                per_code[key] = stats
+                written += int(stats.get("inserted") or 0)
+                rows += int(stats.get("rows") or 0)
+            except Exception as e:
+                errors[f"{code}:{key}"] = str(e)
+        details[code] = per_code
+
+    status = "success" if not errors else ("partial" if written > 0 else "failed")
+    return status, {
+        "enabled": True,
+        "source": "EASTMONEY",
+        "rows": rows,
+        "inserted": written,
+        "lookback_days_1m": lookback_days_1m,
+        "lookback_days_5m": lookback_days_5m,
+        "details": details,
+        "errors": errors,
+    }
+
+
 def run_job(db: Session, job_name: str) -> JobRun:
     run = JobRun(job_name=job_name, status="running")
     db.add(run)
@@ -679,6 +797,11 @@ def run_job(db: Session, job_name: str) -> JobRun:
             em_status, em_summary = _backfill_eastmoney_cn_halfday(db, lookback_days=90)
             status = "success" if em_status in {"success", "skipped"} else "partial"
             summary = {"eastmoney": em_summary}
+
+        elif job_name == "backfill_intraday_kline":
+            k_status, k_summary = _backfill_intraday_kline_source(db, lookback_days_5m=90, lookback_days_1m=2)
+            status = "success" if k_status in {"success", "skipped"} else ("partial" if k_status == "partial" else "failed")
+            summary = {"kline": k_summary}
 
         else:
             raise ValueError(f"Unknown job_name: {job_name}")
