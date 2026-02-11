@@ -454,8 +454,24 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
         if updated_at is not None:
             sync_points.append(updated_at)
 
+        # Peak FULL turnover over history (not limited by series length).
         peak_ratio = None
-        peak_turnover = max(full_turnover_series) if full_turnover_series else None
+        peak_turnover = None
+        if index_row is not None:
+            if code == "HSI":
+                peak_turnover = (
+                    db.query(sa.func.max(TurnoverFact.turnover_hkd))
+                    .filter(TurnoverFact.session == SessionType.FULL)
+                    .scalar()
+                )
+            else:
+                peak_turnover = (
+                    db.query(sa.func.max(IndexQuoteHistory.turnover_amount))
+                    .filter(IndexQuoteHistory.index_id == index_row.id)
+                    .filter(IndexQuoteHistory.session == SessionType.FULL)
+                    .scalar()
+                )
+
         if full_turnover and peak_turnover:
             peak_ratio = round(full_turnover / peak_turnover * 100)
         ratio_to_peak[code] = peak_ratio
@@ -491,7 +507,7 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
                     "tenAvgVolAM": _avg(am_turnover_series, 10),
                     "tenAvgVolDay": _avg(full_turnover_series, 10),
                     "maxVolAM": _to_yi(max(am_turnover_series) if am_turnover_series else None),
-                    "maxVolDay": _to_yi(max(full_turnover_series) if full_turnover_series else None),
+                    "maxVolDay": _to_yi(int(peak_turnover) if peak_turnover is not None else None),
                 },
             }
         )
