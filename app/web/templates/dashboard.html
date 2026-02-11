@@ -31,12 +31,6 @@
       <nav class="w-full text-right text-xs text-slate-400 space-x-3">
         <span class="text-slate-400">Visited: {{ visited_count }}</span>
         <a class="hover:text-blue-300" href="{{ base }}/jobs">Jobs</a>
-        {% if current_user %}
-          <span class="text-slate-500">{{ current_user.email }}</span>
-          <form method="post" action="{{ base }}/logout" class="inline">
-            <button type="submit" class="hover:text-blue-300">Logout</button>
-          </form>
-        {% endif %}
       </nav>
     </header>
 
