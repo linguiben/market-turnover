@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from datetime import date
-from datetime import datetime
+from datetime import datetime, time
+from zoneinfo import ZoneInfo
 
 import sqlalchemy as sa
 
@@ -107,17 +108,17 @@ def _today_realtime_snapshot(
     db: Session,
     *,
     index_id: int,
-    session: SessionType,
     today: date,
+    updated_before: datetime | None = None,
 ) -> IndexRealtimeSnapshot | None:
-    return (
+    q = (
         db.query(IndexRealtimeSnapshot)
         .filter(IndexRealtimeSnapshot.index_id == index_id)
-        .filter(IndexRealtimeSnapshot.session == session)
         .filter(IndexRealtimeSnapshot.trade_date == today)
-        .order_by(IndexRealtimeSnapshot.id.desc())
-        .first()
     )
+    if updated_before is not None:
+        q = q.filter(IndexRealtimeSnapshot.data_updated_at <= updated_before)
+    return q.order_by(IndexRealtimeSnapshot.id.desc()).first()
 
 
 def _turnover_series(
@@ -249,20 +250,26 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
         if index_row is not None:
             full = _latest_index_history(db, index_id=index_row.id, session=SessionType.FULL)
             am = _latest_index_history(db, index_id=index_row.id, session=SessionType.AM)
-            # Prefer today's realtime snapshot for "today" card fields.
-            snap_full = _today_realtime_snapshot(db, index_id=index_row.id, session=SessionType.FULL, today=today)
-            snap_am = _today_realtime_snapshot(db, index_id=index_row.id, session=SessionType.AM, today=today)
 
-        # "today" turnover: snapshot first; fallback to history.
-        full_turnover = (
-            snap_full.turnover_amount
-            if snap_full is not None and snap_full.turnover_amount is not None
-            else (full.turnover_amount if full is not None else None)
-        )
+            # Today's turnover/price come from realtime snapshots.
+            snap_full = _today_realtime_snapshot(db, index_id=index_row.id, today=today)
+
+            # AM turnover: latest snapshot updated at/before 12:30.
+            am_cutoff = datetime.combine(today, time(12, 30), tzinfo=ZoneInfo("Asia/Shanghai"))
+            snap_am = _today_realtime_snapshot(db, index_id=index_row.id, today=today, updated_before=am_cutoff)
+
+        # "today" turnover logic:
+        # AM: snapshot (<=12:30) -> history latest AM
+        # FULL: snapshot (latest today) -> history latest FULL -> (HSI) turnover_fact latest FULL
         am_turnover = (
             snap_am.turnover_amount
             if snap_am is not None and snap_am.turnover_amount is not None
             else (am.turnover_amount if am is not None else None)
+        )
+        full_turnover = (
+            snap_full.turnover_amount
+            if snap_full is not None and snap_full.turnover_amount is not None
+            else (full.turnover_amount if full is not None else None)
         )
 
         full_turnover_series = (
@@ -289,7 +296,6 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
         if code == "HSI":
             fallback_quote_full = _latest_hsi_quote(db, session=SessionType.FULL)
             fallback_turnover_full = _latest_turnover_fact(db, session=SessionType.FULL)
-            fallback_turnover_am = _latest_turnover_fact(db, session=SessionType.AM)
 
             if full_last is None and fallback_quote_full is not None:
                 full_last = fallback_quote_full.last
@@ -298,10 +304,9 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
             if updated_at is None and fallback_quote_full is not None:
                 updated_at = fallback_quote_full.asof_ts or fallback_quote_full.updated_at
 
+            # FULL turnover (HSI): if still missing, fallback to turnover_fact FULL.
             if full_turnover is None and fallback_turnover_full is not None:
                 full_turnover = fallback_turnover_full.turnover_hkd
-            if am_turnover is None and fallback_turnover_am is not None:
-                am_turnover = fallback_turnover_am.turnover_hkd
             if updated_at is None and fallback_turnover_full is not None:
                 updated_at = fallback_turnover_full.updated_at
 
