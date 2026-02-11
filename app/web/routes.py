@@ -43,6 +43,11 @@ AVAILABLE_JOBS: tuple[dict[str, str], ...] = (
         "description": "同步 HSI/SSE/SZSE 的最新一个交易日(日线)数据。",
     },
     {
+        "name": "fetch_intraday_snapshot",
+        "label": "抓取盘中快照",
+        "description": "抓取今日盘中快照：HSI(AASTOCKS), SSE/SZSE(EASTMONEY 1min)。",
+    },
+    {
         "name": "backfill_tushare_index",
         "label": "回填指数1年",
         "description": "回填最近 1 年 HSI/SSE/SZSE 日线数据（跳过已存在记录）。",

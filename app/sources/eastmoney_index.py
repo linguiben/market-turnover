@@ -15,6 +15,18 @@ class EastmoneyMinuteBar:
     raw: str
 
 
+@dataclass
+class EastmoneyIntradaySnapshot:
+    trade_date: date
+    asof: datetime
+    last: float
+    change: float | None
+    pct_chg: float | None
+    amount: float | None  # 成交额 (yuan)
+    volume: float | None
+    raw: dict
+
+
 def _secid_from_ts_code(ts_code: str) -> str:
     """Convert ts_code like 000001.SH / 399001.SZ to Eastmoney secid."""
 

@@ -22,6 +22,7 @@ from app.sources.aastocks_index import fetch_hsi_snapshot
 from app.sources.tushare_index import TushareIndexDaily, daily_row_asof, fetch_index_daily_history, fetch_latest_index_daily
 from app.sources.tencent_index import fetch_index_daily_history as fetch_tencent_index_daily_history
 from app.sources.eastmoney_index import fetch_minute_kline, aggregate_halfday_and_fullday_amount
+from app.sources.eastmoney_intraday import fetch_intraday_snapshot as fetch_eastmoney_intraday_snapshot
 
 
 def _persist_tushare_rows(
@@ -555,6 +556,72 @@ def run_job(db: Session, job_name: str) -> JobRun:
             ts_status, ts_summary = _sync_tushare_index_quotes(db)
             status = "success" if ts_status in {"success", "skipped"} else "partial"
             summary = {"tushare": ts_summary}
+
+        elif job_name == "fetch_intraday_snapshot":
+            # Intraday snapshot for HSI/SSE/SZSE
+            index_map = settings.tushare_index_map()
+            written = 0
+            errors: dict[str, str] = {}
+
+            # 1) HSI from AASTOCKS
+            try:
+                snap = fetch_hsi_snapshot()
+                if snap.asof is not None:
+                    trade_date = snap.asof.date()
+                    asof = snap.asof
+                else:
+                    trade_date = date.today()
+                    asof = datetime.now(timezone.utc)
+
+                index_row = ensure_market_index(db, "HSI")
+                upsert_realtime_snapshot(
+                    db,
+                    index_id=index_row.id,
+                    trade_date=trade_date,
+                    session=SessionType.FULL,
+                    last=int(round(float(snap.last) * 100)),
+                    change_points=int(round(float(snap.change) * 100)) if snap.change is not None else None,
+                    change_pct=int(round(float(snap.change_pct) * 100)) if snap.change_pct is not None else None,
+                    turnover_amount=int(snap.turnover_hkd) if snap.turnover_hkd is not None else None,
+                    turnover_currency="HKD",
+                    data_updated_at=asof,
+                    is_closed=False,
+                    source="AASTOCKS",
+                    payload={"raw": snap.raw},
+                )
+                written += 1
+            except Exception as e:
+                errors["HSI"] = str(e)
+
+            # 2) SSE/SZSE from Eastmoney intraday minute kline
+            for code in ("SSE", "SZSE"):
+                try:
+                    ts_code = (index_map.get(code) or "").strip()
+                    if not ts_code:
+                        raise RuntimeError("missing ts_code in TUSHARE_INDEX_CODES")
+                    snap = fetch_eastmoney_intraday_snapshot(ts_code=ts_code, timeout_seconds=settings.HKEX_TIMEOUT_SECONDS)
+                    index_row = ensure_market_index(db, code)
+                    upsert_realtime_snapshot(
+                        db,
+                        index_id=index_row.id,
+                        trade_date=snap.trade_date,
+                        session=SessionType.FULL,
+                        last=int(round(float(snap.last) * 100)),
+                        change_points=int(round(float(snap.change) * 100)) if snap.change is not None else None,
+                        change_pct=int(round(float(snap.pct_chg) * 100)) if snap.pct_chg is not None else None,
+                        turnover_amount=int(round(float(snap.amount))) if snap.amount is not None else None,
+                        turnover_currency="CNY",
+                        data_updated_at=snap.asof,
+                        is_closed=False,
+                        source="EASTMONEY",
+                        payload={"raw": snap.raw, "ts_code": ts_code},
+                    )
+                    written += 1
+                except Exception as e:
+                    errors[code] = str(e)
+
+            status = "success" if not errors else ("partial" if written else "failed")
+            summary = {"written": written, "errors": errors}
 
         elif job_name == "backfill_tushare_index":
             ts_status, ts_summary = _backfill_tushare_index_quotes(db, lookback_days=365)
