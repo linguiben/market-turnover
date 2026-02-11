@@ -284,7 +284,9 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
             # Today's turnover/price come from realtime snapshots.
             snap_full = _today_realtime_snapshot(db, index_id=index_row.id, today=today, session=SessionType.FULL)
 
-            # AM turnover: latest snapshot (session=AM) updated at/before 12:30.
+            # AM turnover: latest snapshot updated at/before 12:30.
+            # - CN indices: we persist explicit session=AM rows.
+            # - HSI: we may only have session=FULL snapshots; use those as AM when <=12:30.
             am_cutoff = datetime.combine(today, time(12, 30), tzinfo=ZoneInfo("Asia/Shanghai"))
             snap_am = _today_realtime_snapshot(
                 db,
@@ -293,6 +295,14 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
                 session=SessionType.AM,
                 updated_before=am_cutoff,
             )
+            if snap_am is None and code == "HSI":
+                snap_am = _today_realtime_snapshot(
+                    db,
+                    index_id=index_row.id,
+                    today=today,
+                    session=SessionType.FULL,
+                    updated_before=am_cutoff,
+                )
 
         # "today" turnover logic:
         # AM: snapshot (<=12:30) -> history latest AM
