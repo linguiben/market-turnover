@@ -15,6 +15,7 @@ from app.config import settings
 from app.db.session import SessionLocal
 from app.jobs.tasks import run_job
 from app.web.routes import router as web_router
+from app.web.visit_logs import add_visit_logging
 
 base_path = settings.BASE_PATH.rstrip("/")
 logger = logging.getLogger(__name__)
@@ -89,6 +90,7 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title=settings.APP_NAME, lifespan=lifespan)
+add_visit_logging(app)
 
 # Serve UI/API at root (/) always.
 app.include_router(web_router, prefix="")

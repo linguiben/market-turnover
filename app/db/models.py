@@ -21,7 +21,7 @@ from sqlalchemy import (
 
 def _enum_values(enum_cls):
     return [e.value for e in enum_cls]
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import INET, JSONB
 from sqlalchemy.orm import declarative_base
 
 Base = declarative_base()
@@ -333,3 +333,39 @@ class JobRun(Base):
     status = Column(String(16), nullable=False, default="running")  # running/success/failed/partial
     summary = Column(JSONB, nullable=True)
     error = Column(Text, nullable=True)
+
+
+class UserVisitLog(Base):
+    __tablename__ = "user_visit_logs"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+
+    # nullable when unauthenticated
+    user_id = Column(Integer, nullable=True)
+
+    ip_address = Column(INET, nullable=False)
+    session_id = Column(String(100), nullable=True)
+    action_type = Column(String(20), nullable=True)  # login/visit/logout/...
+
+    user_agent = Column(Text, nullable=True)
+    browser_family = Column(String(50), nullable=True)
+    os_family = Column(String(50), nullable=True)
+    device_type = Column(String(20), nullable=True)  # pc/mobile/tablet
+
+    request_url = Column(Text, nullable=False)
+    referer_url = Column(Text, nullable=True)
+
+    request_headers = Column(JSONB, nullable=True)
+
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+Index("idx_visit_logs_created_at", UserVisitLog.created_at.desc())
+Index("idx_visit_logs_user_id", UserVisitLog.user_id, postgresql_where=UserVisitLog.user_id.isnot(None))
+Index("idx_visit_logs_referer", UserVisitLog.referer_url, postgresql_where=UserVisitLog.referer_url.isnot(None))
+Index(
+    "idx_visit_logs_ip",
+    UserVisitLog.ip_address,
+    postgresql_using="gist",
+    postgresql_ops={"ip_address": "inet_ops"},
+)
