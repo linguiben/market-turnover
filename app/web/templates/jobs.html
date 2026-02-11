@@ -7,6 +7,26 @@
 <table>
   <thead><tr><th>Job</th><th>Description</th><th>Target tables</th><th>Last Status</th><th>Action</th></tr></thead>
   <tbody>
+  <script>
+    function copySqlExample(btn) {
+      const sql = btn.getAttribute('data-sql') || '';
+      if (!sql) return;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(sql);
+        btn.textContent = 'copied';
+        setTimeout(() => (btn.textContent = 'copy'), 800);
+        return;
+      }
+      const ta = document.createElement('textarea');
+      ta.value = sql;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      btn.textContent = 'copied';
+      setTimeout(() => (btn.textContent = 'copy'), 800);
+    }
+  </script>
   {% for item in available_jobs %}
     {% set latest = latest_run_by_name.get(item.name) %}
     <tr>
@@ -14,7 +34,26 @@
       <td>{{ item.description }}</td>
       <td>
         {% if item.targets %}
-          <code>{{ item.targets | join(', ') }}</code>
+          {% set tables = (item.targets | join(', ')) %}
+          {% set sql = "-- example: inspect recent rows\n" ~ ("SELECT * FROM " ~ item.targets[0] ~ " ORDER BY id DESC LIMIT 20;") %}
+          {% if item.targets|length > 1 %}
+            {% set sql = sql ~ "\n\n-- example: per-table counts\n" %}
+            {% for t in item.targets %}
+              {% set sql = sql ~ ("SELECT '" ~ t ~ "' AS table, COUNT(*) AS rows FROM " ~ t ~ ";\n") %}
+            {% endfor %}
+          {% endif %}
+
+          <div style="display:flex; gap:8px; align-items:center; justify-content:space-between;">
+            <code>{{ tables }}</code>
+            <button
+              type="button"
+              class="muted"
+              style="border:1px solid #ddd; background:#fff; padding:2px 6px; cursor:pointer;"
+              title="Copy SQL example"
+              data-sql="{{ sql | replace('\n','&#10;') }}"
+              onclick="copySqlExample(this)"
+            >copy</button>
+          </div>
         {% else %}
           <span class="muted">-</span>
         {% endif %}
