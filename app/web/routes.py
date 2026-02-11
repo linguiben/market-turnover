@@ -104,6 +104,23 @@ def _latest_index_history(db: Session, *, index_id: int, session: SessionType) -
     )
 
 
+def _latest_index_history_before(
+    db: Session,
+    *,
+    index_id: int,
+    session: SessionType,
+    before_date: date,
+) -> IndexQuoteHistory | None:
+    return (
+        db.query(IndexQuoteHistory)
+        .filter(IndexQuoteHistory.index_id == index_id)
+        .filter(IndexQuoteHistory.session == session)
+        .filter(IndexQuoteHistory.trade_date < before_date)
+        .order_by(IndexQuoteHistory.trade_date.desc())
+        .first()
+    )
+
+
 def _today_realtime_snapshot(
     db: Session,
     *,
@@ -156,6 +173,16 @@ def _latest_turnover_fact(db: Session, *, session: SessionType) -> TurnoverFact 
     return (
         db.query(TurnoverFact)
         .filter(TurnoverFact.session == session)
+        .order_by(TurnoverFact.trade_date.desc())
+        .first()
+    )
+
+
+def _latest_turnover_fact_before(db: Session, *, session: SessionType, before_date: date) -> TurnoverFact | None:
+    return (
+        db.query(TurnoverFact)
+        .filter(TurnoverFact.session == session)
+        .filter(TurnoverFact.trade_date < before_date)
         .order_by(TurnoverFact.trade_date.desc())
         .first()
     )
@@ -278,6 +305,21 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
         am_turnover_series = (
             _turnover_series(db, index_id=index_row.id, session=SessionType.AM) if index_row is not None else []
         )
+
+        # Yesterday turnover (previous trading day in history table)
+        yesterday_full_hist = (
+            _latest_index_history_before(db, index_id=index_row.id, session=SessionType.FULL, before_date=today)
+            if index_row is not None
+            else None
+        )
+        yesterday_am_hist = (
+            _latest_index_history_before(db, index_id=index_row.id, session=SessionType.AM, before_date=today)
+            if index_row is not None
+            else None
+        )
+        yesterday_full_turnover = yesterday_full_hist.turnover_amount if yesterday_full_hist is not None else None
+        yesterday_am_turnover = yesterday_am_hist.turnover_amount if yesterday_am_hist is not None else None
+
         points_series = _close_points_series(db, index_id=index_row.id) if index_row is not None else []
 
         # "latest price" on homepage: today's realtime snapshot first; fallback to history.
@@ -309,6 +351,12 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
                 full_turnover = fallback_turnover_full.turnover_hkd
             if updated_at is None and fallback_turnover_full is not None:
                 updated_at = fallback_turnover_full.updated_at
+
+            # Yesterday FULL turnover (HSI): if missing, fallback to turnover_fact FULL.
+            if yesterday_full_turnover is None:
+                y_full_fact = _latest_turnover_fact_before(db, session=SessionType.FULL, before_date=today)
+                if y_full_fact is not None:
+                    yesterday_full_turnover = y_full_fact.turnover_hkd
 
             if not full_turnover_series:
                 full_turnover_series = _turnover_fact_series(db, session=SessionType.FULL)
@@ -361,6 +409,8 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
                     "maxPoints": round(max_points, 2),
                     "todayVolAM": _to_yi(am_turnover),
                     "todayVolDay": _to_yi(full_turnover),
+                    "yesterdayVolAM": _to_yi(yesterday_am_turnover),
+                    "yesterdayVolDay": _to_yi(yesterday_full_turnover),
                     "avgVolAM": _avg(am_turnover_series, 5),
                     "avgVolDay": _avg(full_turnover_series, 5),
                     "tenAvgVolAM": _avg(am_turnover_series, 10),

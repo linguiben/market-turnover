@@ -84,7 +84,7 @@
       return {
         tooltip: { trigger: "axis", axisPointer: { type: "shadow" } },
         legend: {
-          data: ["当日成交", "5日均值", "10日均值"],
+          data: ["当日成交", "昨日成交", "5日均值", "10日均值"],
           bottom: "0",
           textStyle: { color: "#94a3b8" }
         },
@@ -136,7 +136,7 @@
           {
             name: "当日成交",
             type: "bar",
-            barWidth: 16,
+            barWidth: 14,
             data: [data.todayVolAM, data.todayVolDay],
             itemStyle: { color: "#60a5fa", borderRadius: [2, 2, 0, 0] },
             markLine: {
@@ -150,16 +150,23 @@
             }
           },
           {
+            name: "昨日成交",
+            type: "bar",
+            barWidth: 14,
+            data: [data.yesterdayVolAM, data.yesterdayVolDay],
+            itemStyle: { color: "#1f2937", borderRadius: [2, 2, 0, 0] }
+          },
+          {
             name: "5日均值",
             type: "bar",
-            barWidth: 16,
+            barWidth: 14,
             data: [data.avgVolAM, data.avgVolDay],
             itemStyle: { color: "#334155", borderRadius: [2, 2, 0, 0] }
           },
           {
             name: "10日均值",
             type: "bar",
-            barWidth: 16,
+            barWidth: 14,
             data: [data.tenAvgVolAM, data.tenAvgVolDay],
             itemStyle: { color: "#475569", borderRadius: [2, 2, 0, 0] }
           }
