@@ -889,6 +889,8 @@ def run_job(db: Session, job_name: str, params: dict | None = None) -> JobRun:
                         raise RuntimeError("missing ts_code in TUSHARE_INDEX_CODES")
                     snap = fetch_eastmoney_intraday_snapshot(ts_code=ts_code, timeout_seconds=settings.HKEX_TIMEOUT_SECONDS)
                     index_row = ensure_market_index(db, code)
+
+                    # FULL snapshot (latest)
                     upsert_realtime_snapshot(
                         db,
                         index_id=index_row.id,
@@ -902,9 +904,28 @@ def run_job(db: Session, job_name: str, params: dict | None = None) -> JobRun:
                         data_updated_at=snap.asof,
                         is_closed=False,
                         source="EASTMONEY",
-                        payload={"raw": snap.raw, "ts_code": ts_code},
+                        payload={"raw": snap.raw, "ts_code": ts_code, "scope": "FULL"},
                     )
                     written += 1
+
+                    # AM snapshot (<=12:30), for dashboard AM turnover selection
+                    if snap.am_amount is not None and snap.am_asof is not None:
+                        upsert_realtime_snapshot(
+                            db,
+                            index_id=index_row.id,
+                            trade_date=snap.trade_date,
+                            session=SessionType.AM,
+                            last=int(round(float(snap.am_last) * 100)) if snap.am_last is not None else int(round(float(snap.last) * 100)),
+                            change_points=int(round(float(snap.change) * 100)) if snap.change is not None else None,
+                            change_pct=int(round(float(snap.pct_chg) * 100)) if snap.pct_chg is not None else None,
+                            turnover_amount=int(round(float(snap.am_amount))),
+                            turnover_currency="CNY",
+                            data_updated_at=snap.am_asof,
+                            is_closed=False,
+                            source="EASTMONEY",
+                            payload={"raw": snap.raw, "ts_code": ts_code, "scope": "AM", "cutoff": "12:30"},
+                        )
+                        written += 1
                 except Exception as e:
                     errors[code] = str(e)
 
