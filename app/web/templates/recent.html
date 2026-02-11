@@ -2,7 +2,7 @@
 {% block content %}
 <h2>Recent (facts)</h2>
 <table>
-  <thead><tr><th>Date</th><th>Session</th><th>HSI</th><th>Turnover (億)</th><th>Source</th><th>Quality</th></tr></thead>
+  <thead><tr><th>Date</th><th>Session</th><th>HSI</th><th>Turnover (B)</th><th>Source</th><th>Quality</th></tr></thead>
   <tbody>
   {% for row in facts %}
     {% set q = quotes.get((row.trade_date, row.session)) %}

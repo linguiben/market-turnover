@@ -1,25 +1,20 @@
 from __future__ import annotations
 
 
-def format_hkd(n: int) -> str:
-    """Human-readable HKD turnover. Uses 億/萬億 units."""
+def format_amount_b(n: int | None) -> str:
+    """Format amount as B (billions, 1e9).
+
+    We use B consistently across HK/CN cards to avoid mixing 亿/億.
+    """
+
     if n is None:
         return "-"
-    yi = 100_000_000
-    wan_yi = 10_000 * yi  # 1 萬億
-    if n >= wan_yi:
-        return f"{n / wan_yi:.2f} 萬億"
-    if n >= yi:
-        return f"{n / yi:.2f} 億"
-    return f"{n:,}"
+    b = 1_000_000_000
+    return f"{n / b:.2f} B"
 
 
-def format_hkd_yi(n: int) -> str:
-    """Format turnover always in 億 (1e8 HKD), per UI requirement."""
-    if n is None:
-        return "-"
-    yi = 100_000_000
-    return f"{n / yi:.2f} 億"
+# Backwards-compatible alias used by templates/routes.
+format_hkd_yi = format_amount_b
 
 
 def format_hsi_price_x100(n: int | None) -> str:

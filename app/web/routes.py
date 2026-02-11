@@ -19,9 +19,9 @@ router = APIRouter()
 templates = Jinja2Templates(directory="app/web/templates")
 
 # template helpers
-from app.services.formatting import format_hkd_yi, format_hsi_price_x100
+from app.services.formatting import format_amount_b, format_hsi_price_x100
 
-templates.env.globals["format_yi"] = format_hkd_yi
+templates.env.globals["format_yi"] = format_amount_b
 templates.env.globals["format_hsi"] = format_hsi_price_x100
 
 INDEX_CODES = ("HSI", "SSE", "SZSE")
@@ -145,13 +145,14 @@ def _avg(values: list[int], n: int) -> float:
     if not values:
         return 0.0
     top_n = values[:n]
-    return round(sum(top_n) / len(top_n) / 100_000_000, 2)
+    return round(sum(top_n) / len(top_n) / 1_000_000_000, 2)
 
 
 def _to_yi(value: int | None) -> float:
+    # legacy name: now returns billions (B)
     if value is None:
         return 0.0
-    return round(value / 100_000_000, 2)
+    return round(value / 1_000_000_000, 2)
 
 
 def _fmt_price(value_x100: int | None) -> str:
