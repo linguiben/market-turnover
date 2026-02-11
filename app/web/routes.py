@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 import sqlalchemy as sa
@@ -347,6 +347,33 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
         )
         yesterday_full_turnover = yesterday_full_hist.turnover_amount if yesterday_full_hist is not None else None
         yesterday_am_turnover = yesterday_am_hist.turnover_amount if yesterday_am_hist is not None else None
+
+        # HSI yesterday AM: allow backfill from realtime snapshots (append-only) when history table has no AM.
+        if code == "HSI" and index_row is not None and yesterday_am_turnover is None:
+            # Determine yesterday trading date (prefer history FULL date; else calendar yesterday)
+            y_date = yesterday_full_hist.trade_date if yesterday_full_hist is not None else (today - timedelta(days=1))
+            # Try snapshot session=AM first; fallback to session=FULL snapshot <=12:30
+            y_am_snap = (
+                db.query(IndexRealtimeSnapshot)
+                .filter(IndexRealtimeSnapshot.index_id == index_row.id)
+                .filter(IndexRealtimeSnapshot.trade_date == y_date)
+                .filter(IndexRealtimeSnapshot.session == SessionType.AM)
+                .order_by(IndexRealtimeSnapshot.id.desc())
+                .first()
+            )
+            if y_am_snap is None:
+                y_cutoff = datetime.combine(y_date, time(12, 30), tzinfo=ZoneInfo("Asia/Shanghai"))
+                y_am_snap = (
+                    db.query(IndexRealtimeSnapshot)
+                    .filter(IndexRealtimeSnapshot.index_id == index_row.id)
+                    .filter(IndexRealtimeSnapshot.trade_date == y_date)
+                    .filter(IndexRealtimeSnapshot.session == SessionType.FULL)
+                    .filter(IndexRealtimeSnapshot.data_updated_at <= y_cutoff)
+                    .order_by(IndexRealtimeSnapshot.id.desc())
+                    .first()
+                )
+            if y_am_snap is not None and y_am_snap.turnover_amount is not None:
+                yesterday_am_turnover = int(y_am_snap.turnover_amount)
 
         points_series = _close_points_series(db, index_id=index_row.id) if index_row is not None else []
 
