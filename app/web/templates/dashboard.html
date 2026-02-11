@@ -80,7 +80,8 @@
 
   <script>
     function getOption(data) {
-      const gaugeMax = data.maxPoints > 0 ? data.maxPoints : 1;
+      // Gauge: show turnover peak vs today's FULL turnover (B)
+      const gaugeMax = data.maxVolDay > 0 ? data.maxVolDay : 1;
       return {
         tooltip: { trigger: "axis", axisPointer: { type: "shadow" } },
         legend: {
@@ -120,7 +121,7 @@
               color: "#64748b",
               fontSize: 10,
               formatter: function (value) {
-                if (value === gaugeMax) return "PEAK: " + gaugeMax.toFixed(2);
+                if (value === gaugeMax) return "PEAK: " + gaugeMax.toFixed(2) + " B";
                 return "";
               }
             },
@@ -129,9 +130,11 @@
               fontSize: 16,
               fontWeight: "bold",
               color: "#ffffff",
-              formatter: "{value}"
+              formatter: function (value) {
+                return value.toFixed(2) + " B";
+              }
             },
-            data: [{ value: data.todayPoints }]
+            data: [{ value: data.todayVolDay }]
           },
           {
             name: "当日成交",
