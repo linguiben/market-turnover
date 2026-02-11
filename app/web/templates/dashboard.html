@@ -88,7 +88,7 @@
           bottom: "0",
           textStyle: { color: "#94a3b8" }
         },
-        grid: { top: "40%", left: "15%", right: "15%", bottom: "15%", containLabel: true },
+        grid: { top: "40%", left: "8%", right: "10%", bottom: "15%", containLabel: true },
         xAxis: {
           type: "category",
           data: ["半日成交量(B)", "全日成交量(B)"],
@@ -144,8 +144,8 @@
               label: { position: "end", color: "#ef4444", fontSize: 10, formatter: "{b}" },
               lineStyle: { type: "dashed", color: "#ef4444", opacity: 0.6 },
               data: [
-                { yAxis: data.maxVolAM, name: "半日峰值: " + data.maxVolAM.toFixed(2) + " B" },
-                { yAxis: data.maxVolDay, name: "全日峰值: " + data.maxVolDay.toFixed(2) + " B" }
+                { yAxis: data.maxVolAM, name: "半日峰: " + data.maxVolAM.toFixed(2) + " B" },
+                { yAxis: data.maxVolDay, name: "全日峰: " + data.maxVolDay.toFixed(2) + " B" }
               ]
             }
           },
