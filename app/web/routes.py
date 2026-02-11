@@ -56,24 +56,28 @@ AVAILABLE_JOBS: tuple[dict, ...] = (
         "name": "fetch_am",
         "label": "午盘抓取",
         "description": "抓取午盘成交额和 HSI 快照；同时尝试同步最新 Tushare 指数。",
+        "schedule": "工作日 11:35",
         "targets": ["turnover_source_record", "turnover_fact", "hsi_quote_fact"],
     },
     {
         "name": "fetch_full",
         "label": "全日抓取",
         "description": "抓取全日成交额和 HSI 快照；同时尝试同步最新 Tushare 指数。",
+        "schedule": "工作日 16:10",
         "targets": ["turnover_source_record", "turnover_fact", "hsi_quote_fact"],
     },
     {
         "name": "fetch_tushare_index",
         "label": "同步最新指数",
         "description": "同步 HSI/SSE/SZSE 的最新一个交易日(日线)数据。",
+        "schedule": "手动（也会被 fetch_am/fetch_full 触发）",
         "targets": ["index_quote_source_record", "index_quote_history", "index_realtime_snapshot"],
     },
     {
         "name": "fetch_intraday_snapshot",
         "label": "抓取盘中快照",
         "description": "抓取今日盘中快照：HSI(AASTOCKS), SSE/SZSE(EASTMONEY 1min)。",
+        "schedule": "每日 20:00",
         "targets": ["index_realtime_snapshot"],
         "params": [
             {"name": "codes", "label": "Index codes (comma)", "type": "text", "placeholder": "HSI,SSE,SZSE"},

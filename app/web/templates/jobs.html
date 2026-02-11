@@ -5,7 +5,7 @@
 
 <h3>Available jobs</h3>
 <table>
-  <thead><tr><th>Job</th><th>Description</th><th>Target tables</th><th>Last Status</th><th>Action</th></tr></thead>
+  <thead><tr><th>Job</th><th>Description</th><th>Schedule</th><th>Target tables</th><th>Last Status</th><th>Action</th></tr></thead>
   <tbody>
   <script>
     function copySqlExample(btn) {
@@ -32,6 +32,7 @@
     <tr>
       <td><code>{{ item.name }}</code><br><span class="muted">{{ item.label }}</span></td>
       <td>{{ item.description }}</td>
+      <td>{{ item.schedule or '手动' }}</td>
       <td>
         {% if item.targets %}
           {% set tables = (item.targets | join(', ')) %}
