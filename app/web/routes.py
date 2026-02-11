@@ -126,6 +126,7 @@ def _today_realtime_snapshot(
     *,
     index_id: int,
     today: date,
+    session: SessionType | None = None,
     updated_before: datetime | None = None,
 ) -> IndexRealtimeSnapshot | None:
     q = (
@@ -133,6 +134,8 @@ def _today_realtime_snapshot(
         .filter(IndexRealtimeSnapshot.index_id == index_id)
         .filter(IndexRealtimeSnapshot.trade_date == today)
     )
+    if session is not None:
+        q = q.filter(IndexRealtimeSnapshot.session == session)
     if updated_before is not None:
         q = q.filter(IndexRealtimeSnapshot.data_updated_at <= updated_before)
     return q.order_by(IndexRealtimeSnapshot.id.desc()).first()
@@ -279,11 +282,17 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
             am = _latest_index_history(db, index_id=index_row.id, session=SessionType.AM)
 
             # Today's turnover/price come from realtime snapshots.
-            snap_full = _today_realtime_snapshot(db, index_id=index_row.id, today=today)
+            snap_full = _today_realtime_snapshot(db, index_id=index_row.id, today=today, session=SessionType.FULL)
 
-            # AM turnover: latest snapshot updated at/before 12:30.
+            # AM turnover: latest snapshot (session=AM) updated at/before 12:30.
             am_cutoff = datetime.combine(today, time(12, 30), tzinfo=ZoneInfo("Asia/Shanghai"))
-            snap_am = _today_realtime_snapshot(db, index_id=index_row.id, today=today, updated_before=am_cutoff)
+            snap_am = _today_realtime_snapshot(
+                db,
+                index_id=index_row.id,
+                today=today,
+                session=SessionType.AM,
+                updated_before=am_cutoff,
+            )
 
         # "today" turnover logic:
         # AM: snapshot (<=12:30) -> history latest AM
