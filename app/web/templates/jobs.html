@@ -5,13 +5,20 @@
 
 <h3>Available jobs</h3>
 <table>
-  <thead><tr><th>Job</th><th>Description</th><th>Last Status</th><th>Action</th></tr></thead>
+  <thead><tr><th>Job</th><th>Description</th><th>Target tables</th><th>Last Status</th><th>Action</th></tr></thead>
   <tbody>
   {% for item in available_jobs %}
     {% set latest = latest_run_by_name.get(item.name) %}
     <tr>
       <td><code>{{ item.name }}</code><br><span class="muted">{{ item.label }}</span></td>
       <td>{{ item.description }}</td>
+      <td>
+        {% if item.targets %}
+          <code>{{ item.targets | join(', ') }}</code>
+        {% else %}
+          <span class="muted">-</span>
+        {% endif %}
+      </td>
       <td>
         {% if latest %}
           <strong>{{ latest.status }}</strong><br>
@@ -23,6 +30,32 @@
       <td>
         <form method="post" action="{{ base }}/api/jobs/run">
           <input type="hidden" name="job_name" value="{{ item.name }}" />
+
+          {% if item.params %}
+            <details>
+              <summary class="muted">Params</summary>
+              <div style="margin: 8px 0; display: grid; gap: 6px;">
+                {% for p in item.params %}
+                  <label>
+                    <span class="muted">{{ p.label }}</span><br />
+                    <input
+                      style="width: 100%;"
+                      name="param_{{ p.name }}"
+                      type="{{ 'number' if p.type == 'number' else 'text' }}"
+                      placeholder="{{ p.placeholder or '' }}"
+                    />
+                  </label>
+                {% endfor %}
+                <label>
+                  <span class="muted">params_json (advanced)</span><br />
+                  <textarea name="params_json" style="width: 100%;" rows="4" placeholder='{"key":"value"}'></textarea>
+                </label>
+              </div>
+            </details>
+          {% else %}
+            <input type="hidden" name="params_json" value="" />
+          {% endif %}
+
           <button type="submit">Run</button>
         </form>
       </td>

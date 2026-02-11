@@ -13,8 +13,12 @@ from app.web.routes import router as web_router
 base_path = settings.BASE_PATH.rstrip("/")
 app = FastAPI(title=settings.APP_NAME)
 
-# Serve UI/API under a reverse-proxy prefix like /market-turnover
-app.include_router(web_router, prefix=base_path)
+# Serve UI/API at root (/) always.
+app.include_router(web_router, prefix="")
+
+# Also serve under a reverse-proxy prefix like /market-turnover (backward compatible).
+if base_path:
+    app.include_router(web_router, prefix=base_path)
 
 # Static test pages (deployed with the container)
 # Example: /market-turnover/test/t1.html

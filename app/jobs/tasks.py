@@ -583,8 +583,8 @@ def _backfill_intraday_kline_source(db: Session, *, lookback_days_5m: int = 90, 
     }
 
 
-def run_job(db: Session, job_name: str) -> JobRun:
-    run = JobRun(job_name=job_name, status="running")
+def run_job(db: Session, job_name: str, params: dict | None = None) -> JobRun:
+    run = JobRun(job_name=job_name, status="running", summary={"params": params} if params else None)
     db.add(run)
     db.commit()
     db.refresh(run)
@@ -783,6 +783,13 @@ def run_job(db: Session, job_name: str) -> JobRun:
             written = 0
             errors: dict[str, str] = {}
 
+            lookback_days = 7
+            try:
+                if params and params.get("lookback_days") is not None:
+                    lookback_days = int(params.get("lookback_days"))
+            except Exception:
+                lookback_days = 7
+
             for code in ("SSE", "SZSE"):
                 try:
                     ts_code = (index_map.get(code) or "").strip()
@@ -792,7 +799,7 @@ def run_job(db: Session, job_name: str) -> JobRun:
                     # klt=5 minute bars, best-effort range
                     bars = fetch_minute_kline(
                         ts_code=ts_code,
-                        lookback_days=7,
+                        lookback_days=lookback_days,
                         timeout_seconds=settings.HKEX_TIMEOUT_SECONDS,
                         klt="5",
                     )
@@ -820,48 +827,63 @@ def run_job(db: Session, job_name: str) -> JobRun:
                     errors[code] = str(e)
 
             status = "success" if not errors else ("partial" if written else "failed")
-            summary = {"written": written, "errors": errors, "interval_min": 5, "source": "EASTMONEY"}
+            summary = {"written": written, "errors": errors, "interval_min": 5, "source": "EASTMONEY", "lookback_days": lookback_days}
 
         elif job_name == "fetch_intraday_snapshot":
 
-            # Intraday snapshot for HSI/SSE/SZSE
+            # Intraday snapshot for indices (default: HSI,SSE,SZSE)
             index_map = settings.tushare_index_map()
             written = 0
             errors: dict[str, str] = {}
 
-            # 1) HSI from AASTOCKS
-            try:
-                snap = fetch_hsi_snapshot()
-                if snap.asof is not None:
-                    trade_date = snap.asof.date()
-                    asof = snap.asof
-                else:
-                    trade_date = date.today()
-                    asof = datetime.now(timezone.utc)
+            codes = ["HSI", "SSE", "SZSE"]
+            if params and params.get("codes"):
+                codes = [c.strip().upper() for c in str(params.get("codes")).split(",") if c.strip()]
 
-                index_row = ensure_market_index(db, "HSI")
-                upsert_realtime_snapshot(
-                    db,
-                    index_id=index_row.id,
-                    trade_date=trade_date,
-                    session=SessionType.FULL,
-                    last=int(round(float(snap.last) * 100)),
-                    change_points=int(round(float(snap.change) * 100)) if snap.change is not None else None,
-                    change_pct=int(round(float(snap.change_pct) * 100)) if snap.change_pct is not None else None,
-                    turnover_amount=int(snap.turnover_hkd) if snap.turnover_hkd is not None else None,
-                    turnover_currency="HKD",
-                    data_updated_at=asof,
-                    is_closed=False,
-                    source="AASTOCKS",
-                    payload={"raw": snap.raw},
-                )
-                written += 1
-            except Exception as e:
-                errors["HSI"] = str(e)
+            force_source = (str(params.get("force_source")).strip().upper() if params and params.get("force_source") else "")
+
+            # 1) HSI from AASTOCKS
+            if "HSI" in codes:
+                try:
+                    if force_source and force_source != "AASTOCKS":
+                        raise RuntimeError(f"HSI snapshot only supports AASTOCKS currently (force_source={force_source})")
+
+                    snap = fetch_hsi_snapshot()
+                    if snap.asof is not None:
+                        trade_date = snap.asof.date()
+                        asof = snap.asof
+                    else:
+                        trade_date = date.today()
+                        asof = datetime.now(timezone.utc)
+
+                    index_row = ensure_market_index(db, "HSI")
+                    upsert_realtime_snapshot(
+                        db,
+                        index_id=index_row.id,
+                        trade_date=trade_date,
+                        session=SessionType.FULL,
+                        last=int(round(float(snap.last) * 100)),
+                        change_points=int(round(float(snap.change) * 100)) if snap.change is not None else None,
+                        change_pct=int(round(float(snap.change_pct) * 100)) if snap.change_pct is not None else None,
+                        turnover_amount=int(snap.turnover_hkd) if snap.turnover_hkd is not None else None,
+                        turnover_currency="HKD",
+                        data_updated_at=asof,
+                        is_closed=False,
+                        source="AASTOCKS",
+                        payload={"raw": snap.raw},
+                    )
+                    written += 1
+                except Exception as e:
+                    errors["HSI"] = str(e)
 
             # 2) SSE/SZSE from Eastmoney intraday minute kline
             for code in ("SSE", "SZSE"):
+                if code not in codes:
+                    continue
                 try:
+                    if force_source and force_source != "EASTMONEY":
+                        raise RuntimeError(f"{code} snapshot only supports EASTMONEY currently (force_source={force_source})")
+
                     ts_code = (index_map.get(code) or "").strip()
                     if not ts_code:
                         raise RuntimeError("missing ts_code in TUSHARE_INDEX_CODES")
@@ -887,7 +909,7 @@ def run_job(db: Session, job_name: str) -> JobRun:
                     errors[code] = str(e)
 
             status = "success" if not errors else ("partial" if written else "failed")
-            summary = {"written": written, "errors": errors}
+            summary = {"written": written, "errors": errors, "codes": codes, "force_source": force_source or None}
 
         elif job_name == "backfill_tushare_index":
             ts_status, ts_summary = _backfill_tushare_index_quotes(db, lookback_days=365)

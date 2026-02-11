@@ -34,46 +34,61 @@ templates.env.globals["format_hsi"] = format_hsi_price_x100
 
 INDEX_CODES = ("HSI", "SSE", "SZSE")
 INDEX_FALLBACK_NAMES = {"HSI": "恒生指数", "SSE": "上证指数", "SZSE": "深证成指"}
-AVAILABLE_JOBS: tuple[dict[str, str], ...] = (
+AVAILABLE_JOBS: tuple[dict, ...] = (
     {
         "name": "fetch_am",
         "label": "午盘抓取",
         "description": "抓取午盘成交额和 HSI 快照；同时尝试同步最新 Tushare 指数。",
+        "targets": ["turnover_source_record", "turnover_fact", "hsi_quote_fact"],
     },
     {
         "name": "fetch_full",
         "label": "全日抓取",
         "description": "抓取全日成交额和 HSI 快照；同时尝试同步最新 Tushare 指数。",
+        "targets": ["turnover_source_record", "turnover_fact", "hsi_quote_fact"],
     },
     {
         "name": "fetch_tushare_index",
         "label": "同步最新指数",
         "description": "同步 HSI/SSE/SZSE 的最新一个交易日(日线)数据。",
+        "targets": ["index_quote_source_record", "index_quote_history", "index_realtime_snapshot"],
     },
     {
         "name": "fetch_intraday_snapshot",
         "label": "抓取盘中快照",
         "description": "抓取今日盘中快照：HSI(AASTOCKS), SSE/SZSE(EASTMONEY 1min)。",
+        "targets": ["index_realtime_snapshot"],
+        "params": [
+            {"name": "codes", "label": "Index codes (comma)", "type": "text", "placeholder": "HSI,SSE,SZSE"},
+            {"name": "force_source", "label": "Force source (optional)", "type": "text", "placeholder": "AASTOCKS/EASTMONEY/TUSHARE"},
+        ],
     },
     {
         "name": "fetch_intraday_bars_cn_5m",
         "label": "保存A股 5分钟K线",
         "description": "保存 SSE/SZSE 的 5分钟K线原始bar到 index_intraday_bar（EASTMONEY, lookback=7天）。",
+        "targets": ["index_intraday_bar"],
+        "params": [
+            {"name": "lookback_days", "label": "Lookback days", "type": "number", "placeholder": "7"},
+        ],
     },
     {
         "name": "backfill_tushare_index",
         "label": "回填指数1年",
         "description": "回填最近 1 年 HSI/SSE/SZSE 日线数据（跳过已存在记录）。",
+        "targets": ["index_quote_source_record", "index_quote_history"],
     },
     {
         "name": "backfill_cn_halfday",
         "label": "回填A股半日成交(90天)",
         "description": "用 Eastmoney 分钟线回填 SSE/SZSE 的半日成交额与全日成交额（用于柱状图和均值）。",
+        "targets": ["index_quote_history", "index_quote_source_record"],
     },
     {
         "name": "backfill_hkex",
         "label": "回填HKEX历史",
         "description": "从 HKEX 统计页面回填港股成交额历史（FULL）。",
+        "targets": ["turnover_source_record", "turnover_fact"],
     },
 )
 
@@ -418,7 +433,31 @@ def jobs(request: Request, db: Session = Depends(get_db)):
 
 
 @router.post("/api/jobs/run")
-def jobs_run(request: Request, job_name: str = Form(...), db: Session = Depends(get_db)):
-    run_job(db, job_name)
+async def jobs_run(request: Request, job_name: str = Form(...), db: Session = Depends(get_db)):
+    form = await request.form()
+
+    params: dict = {}
+    params_json = (form.get("params_json") or "").strip()
+    if params_json:
+        import json
+
+        params.update(json.loads(params_json))
+
+    # Collect param_* fields
+    for k, v in form.items():
+        if not k.startswith("param_"):
+            continue
+        name = k[len("param_") :]
+        if v is None:
+            continue
+        if isinstance(v, str):
+            val = v.strip()
+            if val == "":
+                continue
+        else:
+            val = v
+        params[name] = val
+
+    run_job(db, job_name, params=params or None)
     base = (request.scope.get("root_path") or "").rstrip("/")
     return RedirectResponse(url=f"{base}/jobs", status_code=303)
