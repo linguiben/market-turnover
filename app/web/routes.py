@@ -269,8 +269,8 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
                 "change_class": price_class,
                 "arrow_path": arrow_path,
                 "updated_at": _fmt_sync_time(updated_at),
-                "today_turnover_am": format_hkd_yi(am_turnover),
-                "today_turnover_day": format_hkd_yi(full_turnover),
+                "today_turnover_am": format_amount_b(am_turnover),
+                "today_turnover_day": format_amount_b(full_turnover),
             }
         )
 
