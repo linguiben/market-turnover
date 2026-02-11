@@ -514,8 +514,9 @@ def _backfill_intraday_kline_source(db: Session, *, lookback_days_5m: int = 90, 
 
     # NOTE: we persist multiple sources:
     # - EASTMONEY for SSE/SZSE (stable public API)
-    # - TUSHARE for HSI/SSE/SZSE (subject to strict rate limits)
-    target = {k.upper(): v for k, v in index_map.items() if k.upper() in {"HSI", "SSE", "SZSE"}}
+    # - TUSHARE for SSE/SZSE (subject to strict rate limits)
+    #   (HSI minute-kline on Tushare is too rate-limited; skip for now)
+    target = {k.upper(): v for k, v in index_map.items() if k.upper() in {"SSE", "SZSE"}}
 
     written = 0
     rows = 0
@@ -549,9 +550,9 @@ def _backfill_intraday_kline_source(db: Session, *, lookback_days_5m: int = 90, 
                 except Exception as e:
                     errors[f"{code}:{key}"] = str(e)
 
-        # TUSHARE (all 3)
-        for freq, start in (("1min", d1_start), ("5min", d5_start)):
-            key = f"TUSHARE:{'1m' if freq == '1min' else '5m'}"
+        # TUSHARE (SSE/SZSE only; keep calls minimal to avoid rate limits)
+        for freq, start in (("5min", d5_start),):
+            key = "TUSHARE:5m"
             try:
                 stats = _persist_tushare_kline_rows(
                     db,
