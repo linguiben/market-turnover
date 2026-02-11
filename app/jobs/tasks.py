@@ -947,6 +947,59 @@ def run_job(db: Session, job_name: str, params: dict | None = None) -> JobRun:
             status = "success" if k_status in {"success", "skipped"} else ("partial" if k_status == "partial" else "failed")
             summary = {"kline": k_summary}
 
+        elif job_name == "backfill_hsi_am_yesterday":
+            # Backfill yesterday HSI AM turnover snapshot from Eastmoney minute kline (secid=100.HSI)
+            from datetime import date as _date
+
+            trade_date = _date.today() - timedelta(days=1)
+            if params and params.get("trade_date"):
+                trade_date = _date.fromisoformat(str(params.get("trade_date")).strip())
+
+            beg = trade_date.strftime("%Y%m%d")
+            end = beg
+            bars = fetch_minute_kline(ts_code="HSI", lookback_days=1, timeout_seconds=settings.HKEX_TIMEOUT_SECONDS, klt="1", beg=beg, end=end)
+
+            cutoff = time(12, 30)
+            am_amount = 0.0
+            have_amount = False
+            am_close = None
+            am_asof = None
+            for bar in bars:
+                if bar.trade_date != trade_date:
+                    continue
+                if bar.dt.time() <= cutoff:
+                    if bar.amount is not None:
+                        am_amount += float(bar.amount)
+                        have_amount = True
+                    am_close = bar.close
+                    am_asof = bar.dt
+
+            if not have_amount:
+                raise RuntimeError("Eastmoney HSI AM: no amount rows")
+            if am_asof is None:
+                # fallback use cutoff timestamp
+                am_asof = datetime.combine(trade_date, cutoff)
+
+            index_row = ensure_market_index(db, "HSI")
+            upsert_realtime_snapshot(
+                db,
+                index_id=index_row.id,
+                trade_date=trade_date,
+                session=SessionType.AM,
+                last=int(round(float(am_close) * 100)) if am_close is not None else 0,
+                change_points=None,
+                change_pct=None,
+                turnover_amount=int(round(am_amount)),
+                turnover_currency="HKD",
+                data_updated_at=am_asof.replace(tzinfo=timezone(timedelta(hours=8))),
+                is_closed=True,
+                source="EASTMONEY",
+                payload={"klt": "1", "beg": beg, "end": end, "cutoff": "12:30", "bars": len(bars)},
+            )
+
+            status = "success"
+            summary = {"trade_date": str(trade_date), "turnover_amount": int(round(am_amount)), "bars": len(bars), "source": "EASTMONEY"}
+
         else:
             raise ValueError(f"Unknown job_name: {job_name}")
 

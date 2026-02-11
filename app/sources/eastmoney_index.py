@@ -131,6 +131,8 @@ def fetch_minute_kline(
     lookback_days: int = 30,
     timeout_seconds: int = 20,
     klt: str = "5",
+    beg: str | None = None,
+    end: str | None = None,
 ) -> list[EastmoneyMinuteBar]:
     """Fetch intraday kline for an index from Eastmoney public API.
 
@@ -152,8 +154,10 @@ def fetch_minute_kline(
         raise ValueError("lookback_days must be positive")
 
     secid = _secid_from_ts_code(ts_code, timeout_seconds=timeout_seconds)
-    beg = (date.today() - timedelta(days=lookback_days)).strftime("%Y%m%d")
-    end = date.today().strftime("%Y%m%d")
+    if beg is None:
+        beg = (date.today() - timedelta(days=lookback_days)).strftime("%Y%m%d")
+    if end is None:
+        end = date.today().strftime("%Y%m%d")
 
     params = {
         "secid": secid,

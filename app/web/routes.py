@@ -91,6 +91,15 @@ AVAILABLE_JOBS: tuple[dict, ...] = (
         "description": "从 HKEX 统计页面回填港股成交额历史（FULL）。",
         "targets": ["turnover_source_record", "turnover_fact"],
     },
+    {
+        "name": "backfill_hsi_am_yesterday",
+        "label": "回填HSI昨日半日成交",
+        "description": "从 Eastmoney 1分钟K线聚合回填 HSI 昨日半日成交（<=12:30）。",
+        "targets": ["index_realtime_snapshot"],
+        "params": [
+            {"name": "trade_date", "label": "Trade date (YYYY-MM-DD, optional)", "type": "text", "placeholder": "2026-02-10"},
+        ],
+    },
 )
 
 
