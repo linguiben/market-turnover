@@ -290,7 +290,7 @@ Index(
 
 class IndexRealtimeSnapshot(Base):
     __tablename__ = "index_realtime_snapshot"
-    __table_args__ = (UniqueConstraint("index_id", "trade_date", name="uq_index_realtime_snapshot"),)
+    # Append-only table: keep every snapshot row, never overwrite.
 
     id = Column(Integer, primary_key=True)
     index_id = Column(Integer, ForeignKey("market_index.id", ondelete="CASCADE"), nullable=False)
@@ -315,6 +315,12 @@ class IndexRealtimeSnapshot(Base):
 
 Index("ix_index_realtime_snapshot_date", IndexRealtimeSnapshot.trade_date.desc())
 Index("ix_index_realtime_snapshot_index", IndexRealtimeSnapshot.index_id)
+Index(
+    "ix_index_realtime_snapshot_latest",
+    IndexRealtimeSnapshot.index_id,
+    IndexRealtimeSnapshot.trade_date,
+    IndexRealtimeSnapshot.id.desc(),
+)
 
 
 class JobRun(Base):

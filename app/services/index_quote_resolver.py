@@ -180,40 +180,28 @@ def upsert_realtime_snapshot(
     source: str,
     payload: dict | None,
 ) -> IndexRealtimeSnapshot:
-    row = (
-        db.query(IndexRealtimeSnapshot)
-        .filter(IndexRealtimeSnapshot.index_id == index_id)
-        .filter(IndexRealtimeSnapshot.trade_date == trade_date)
-        .one_or_none()
-    )
-    if row is None:
-        row = IndexRealtimeSnapshot(
-            index_id=index_id,
-            trade_date=trade_date,
-            session=session,
-            last=last,
-            change_points=change_points,
-            change_pct=change_pct,
-            turnover_amount=turnover_amount,
-            turnover_currency=turnover_currency,
-            data_updated_at=data_updated_at,
-            is_closed=is_closed,
-            source=source,
-            payload=payload,
-        )
-        db.add(row)
-    else:
-        row.session = session
-        row.last = last
-        row.change_points = change_points
-        row.change_pct = change_pct
-        row.turnover_amount = turnover_amount
-        row.turnover_currency = turnover_currency
-        row.data_updated_at = data_updated_at
-        row.is_closed = is_closed
-        row.source = source
-        row.payload = payload
+    """Append-only insert for realtime snapshot.
 
+    Historical snapshots are preserved; homepage should query latest by (index_id, trade_date, id desc).
+
+    Function name kept for backward compatibility with existing call sites.
+    """
+
+    row = IndexRealtimeSnapshot(
+        index_id=index_id,
+        trade_date=trade_date,
+        session=session,
+        last=last,
+        change_points=change_points,
+        change_pct=change_pct,
+        turnover_amount=turnover_amount,
+        turnover_currency=turnover_currency,
+        data_updated_at=data_updated_at,
+        is_closed=is_closed,
+        source=source,
+        payload=payload,
+    )
+    db.add(row)
     db.commit()
     db.refresh(row)
     return row

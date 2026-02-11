@@ -115,7 +115,7 @@ def _today_realtime_snapshot(
         .filter(IndexRealtimeSnapshot.index_id == index_id)
         .filter(IndexRealtimeSnapshot.session == session)
         .filter(IndexRealtimeSnapshot.trade_date == today)
-        .order_by(IndexRealtimeSnapshot.data_updated_at.desc())
+        .order_by(IndexRealtimeSnapshot.id.desc())
         .first()
     )
 
