@@ -6,12 +6,41 @@ from datetime import date, datetime
 import httpx
 
 
-def _secid_from_ts_code(ts_code: str) -> str:
+_SECID_CACHE: dict[str, str] = {}
+
+
+def _secid_from_ts_code(ts_code: str, *, timeout_seconds: int = 15) -> str:
     ts_code = ts_code.strip().upper()
+
+    if ts_code in _SECID_CACHE:
+        return _SECID_CACHE[ts_code]
+
     if ts_code.endswith(".SH"):
-        return "1." + ts_code.split(".")[0]
+        secid = "1." + ts_code.split(".")[0]
+        _SECID_CACHE[ts_code] = secid
+        return secid
     if ts_code.endswith(".SZ"):
-        return "0." + ts_code.split(".")[0]
+        secid = "0." + ts_code.split(".")[0]
+        _SECID_CACHE[ts_code] = secid
+        return secid
+
+    if ts_code == "HSI":
+        with httpx.Client(timeout=timeout_seconds, headers={"User-Agent": "market-turnover/0.1"}) as client:
+            resp = client.get(
+                "https://searchapi.eastmoney.com/api/suggest/get",
+                params={"input": "HSI", "type": "14", "count": "10"},
+            )
+            resp.raise_for_status()
+            data = resp.json() or {}
+        rows = (((data.get("QuotationCodeTable") or {}).get("Data")) or [])
+        for row in rows:
+            if (row or {}).get("Code") == "HSI":
+                quote_id = (row or {}).get("QuoteID")
+                if quote_id:
+                    _SECID_CACHE[ts_code] = str(quote_id)
+                    return str(quote_id)
+        raise ValueError("Eastmoney suggest did not return QuoteID for HSI")
+
     raise ValueError(f"Unsupported ts_code for Eastmoney: {ts_code}")
 
 
@@ -46,7 +75,7 @@ def fetch_intraday_snapshot(
     preKPrice from response is used to compute change/pct.
     """
 
-    secid = _secid_from_ts_code(ts_code)
+    secid = _secid_from_ts_code(ts_code, timeout_seconds=timeout_seconds)
     today = date.today().strftime("%Y%m%d")
 
     params = {
