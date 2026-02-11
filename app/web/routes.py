@@ -515,9 +515,11 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
     last_data_sync = _fmt_sync_time(max(sync_points) if sync_points else None)
     hsi_ratio = ratio_to_peak.get("HSI")
     sse_ratio = ratio_to_peak.get("SSE")
+    szse_ratio = ratio_to_peak.get("SZSE")
     insight_text = (
         f"当前恒生指数全日成交量约为近期峰值的 {hsi_ratio}% ，"
-        f"上证指数约为 {sse_ratio if sse_ratio is not None else '--'}% 。"
+        f"上证指数约为 {sse_ratio if sse_ratio is not None else '--'}% ，"
+        f"深证成指约为 {szse_ratio if szse_ratio is not None else '--'}% 。"
         "若指数点位走强且成交量继续放大，趋势延续概率更高；反之需关注量价背离。"
         if hsi_ratio is not None
         else "暂无足够历史数据生成量价分析，请先运行 backfill_tushare_index 或 fetch_tushare_index / fetch_full 同步数据。"
@@ -534,6 +536,7 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
             "insight_text": insight_text,
             "hsi_ratio": hsi_ratio,
             "sse_ratio": sse_ratio,
+            "szse_ratio": szse_ratio,
         },
     )
 
