@@ -39,6 +39,11 @@ class Quality(str, enum.Enum):
     FALLBACK = "fallback"
 
 
+class KlineInterval(str, enum.Enum):
+    M1 = "1m"
+    M5 = "5m"
+
+
 class TradingCalendarHK(Base):
     __tablename__ = "trading_calendar_hk"
 
@@ -167,6 +172,52 @@ Index(
     "ix_index_source_record_source_fetched",
     IndexQuoteSourceRecord.source,
     IndexQuoteSourceRecord.fetched_at.desc(),
+)
+
+
+class IndexKlineSourceRecord(Base):
+    __tablename__ = "index_kline_source_record"
+    __table_args__ = (
+        UniqueConstraint("index_id", "interval", "bar_time", "source", name="uq_index_kline_source"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    index_id = Column(Integer, ForeignKey("market_index.id", ondelete="CASCADE"), nullable=False)
+    interval = Column(Enum(KlineInterval, name="klineinterval", values_callable=_enum_values), nullable=False)
+    bar_time = Column(DateTime(timezone=True), nullable=False)
+    trade_date = Column(Date, nullable=False)
+    source = Column(String(32), nullable=False)
+
+    open = Column(Integer, nullable=True)  # *100
+    high = Column(Integer, nullable=True)  # *100
+    low = Column(Integer, nullable=True)  # *100
+    close = Column(Integer, nullable=True)  # *100
+    volume = Column(BigInteger, nullable=True)
+    turnover_amount = Column(BigInteger, nullable=True)
+    turnover_currency = Column(String(8), nullable=True)
+
+    asof_ts = Column(DateTime(timezone=True), nullable=True)
+    payload = Column(JSONB, nullable=True)
+    fetched_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    ok = Column(Boolean, nullable=False, default=True)
+    error = Column(Text, nullable=True)
+
+
+Index(
+    "ix_index_kline_lookup",
+    IndexKlineSourceRecord.index_id,
+    IndexKlineSourceRecord.interval,
+    IndexKlineSourceRecord.bar_time.desc(),
+)
+Index(
+    "ix_index_kline_trade_date",
+    IndexKlineSourceRecord.trade_date,
+    IndexKlineSourceRecord.interval,
+)
+Index(
+    "ix_index_kline_source_fetched",
+    IndexKlineSourceRecord.source,
+    IndexKlineSourceRecord.fetched_at.desc(),
 )
 
 

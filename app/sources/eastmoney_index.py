@@ -10,7 +10,11 @@ import httpx
 class EastmoneyMinuteBar:
     trade_date: date
     dt: datetime
+    open: float | None
+    high: float | None
+    low: float | None
     close: float
+    volume: float | None
     amount: float | None  # 成交额 (yuan)
     raw: str
 
@@ -47,15 +51,59 @@ def _parse_kline_rows(rows: list[str]) -> list[EastmoneyMinuteBar]:
         if not parts:
             continue
         dt = datetime.strptime(parts[0], "%Y-%m-%d %H:%M")
-        close = float(parts[2])
+        open_price = None
+        close = None
+        high = None
+        low = None
+        volume = None
         amount = None
+
+        if len(parts) > 1 and parts[1] not in (None, ""):
+            try:
+                open_price = float(parts[1])
+            except Exception:
+                open_price = None
+        if len(parts) > 2 and parts[2] not in (None, ""):
+            try:
+                close = float(parts[2])
+            except Exception:
+                close = None
+        if len(parts) > 3 and parts[3] not in (None, ""):
+            try:
+                high = float(parts[3])
+            except Exception:
+                high = None
+        if len(parts) > 4 and parts[4] not in (None, ""):
+            try:
+                low = float(parts[4])
+            except Exception:
+                low = None
+        if len(parts) > 5 and parts[5] not in (None, ""):
+            try:
+                volume = float(parts[5])
+            except Exception:
+                volume = None
         # With fields2=f51..f58, amount is usually the 7th column (index 6).
         if len(parts) >= 7 and parts[6] not in (None, ""):
             try:
                 amount = float(parts[6])
             except Exception:
                 amount = None
-        out.append(EastmoneyMinuteBar(trade_date=dt.date(), dt=dt, close=close, amount=amount, raw=row))
+        if close is None:
+            continue
+        out.append(
+            EastmoneyMinuteBar(
+                trade_date=dt.date(),
+                dt=dt,
+                open=open_price,
+                high=high,
+                low=low,
+                close=close,
+                volume=volume,
+                amount=amount,
+                raw=row,
+            )
+        )
     return out
 
 
