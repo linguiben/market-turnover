@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from datetime import date, time
 
 from app.config import settings
-from app.db.models import IndexKlineSourceRecord, IndexQuoteSourceRecord, JobRun, HsiQuoteFact, KlineInterval, SessionType, TurnoverSourceRecord
+from app.db.models import IndexKlineSourceRecord, IndexQuoteSourceRecord, JobRun, HsiQuoteFact, KlineInterval, SessionType, TurnoverSourceRecord, IndexQuoteHistory
 from app.services.index_quote_resolver import (
     add_index_source_record,
     ensure_market_index,
@@ -1000,8 +1000,99 @@ def run_job(db: Session, job_name: str, params: dict | None = None) -> JobRun:
                     "errors": errors,
                 }
 
+        elif job_name == "backfill_hsi_am_from_kline":
+            # Aggregate HSI AM turnover from persisted kline rows (index_kline_source_record)
+            idx = ensure_market_index(db, "HSI")
+
+            date_from = None
+            date_to = None
+            if params and params.get("date_from"):
+                date_from = date.fromisoformat(str(params.get("date_from")).strip())
+            if params and params.get("date_to"):
+                date_to = date.fromisoformat(str(params.get("date_to")).strip())
+
+            q = (
+                db.query(IndexKlineSourceRecord)
+                .filter(IndexKlineSourceRecord.index_id == idx.id)
+                .filter(IndexKlineSourceRecord.source == "EASTMONEY")
+                .filter(IndexKlineSourceRecord.interval == KlineInterval.M5)
+                .filter(IndexKlineSourceRecord.ok.is_(True))
+            )
+            if date_from is not None:
+                q = q.filter(IndexKlineSourceRecord.trade_date >= date_from)
+            if date_to is not None:
+                q = q.filter(IndexKlineSourceRecord.trade_date <= date_to)
+            rows = q.order_by(IndexKlineSourceRecord.trade_date.asc(), IndexKlineSourceRecord.bar_time.asc()).all()
+
+            by_day: dict[date, list[IndexKlineSourceRecord]] = {}
+            for r in rows:
+                by_day.setdefault(r.trade_date, []).append(r)
+
+            cutoff = time(12, 30)
+            updated = 0
+            skipped = 0
+            details: dict[str, dict] = {}
+
+            for d, bars in sorted(by_day.items()):
+                # skip if already has AM history with turnover
+                existing = (
+                    db.query(IndexQuoteHistory)
+                    .filter(IndexQuoteHistory.index_id == idx.id)
+                    .filter(IndexQuoteHistory.trade_date == d)
+                    .filter(IndexQuoteHistory.session == SessionType.AM)
+                    .one_or_none()
+                )
+                if existing is not None and existing.turnover_amount is not None:
+                    skipped += 1
+                    continue
+
+                am_amount = 0
+                have_amount = False
+                am_close = None
+                am_asof = None
+
+                for r in bars:
+                    bt = r.bar_time
+                    try:
+                        bt_local = bt.astimezone(timezone(timedelta(hours=8)))
+                    except Exception:
+                        bt_local = bt
+                    if bt_local.time() <= cutoff:
+                        if r.turnover_amount is not None:
+                            am_amount += int(r.turnover_amount)
+                            have_amount = True
+                        if r.close is not None:
+                            am_close = int(r.close)
+                        am_asof = bt
+
+                if not have_amount or am_close is None:
+                    continue
+
+                add_index_source_record(
+                    db,
+                    index_id=idx.id,
+                    trade_date=d,
+                    session=SessionType.AM,
+                    source="EASTMONEY",
+                    last=am_close,
+                    change_points=None,
+                    change_pct=None,
+                    turnover_amount=am_amount,
+                    turnover_currency="HKD",
+                    asof_ts=am_asof,
+                    payload={"from": "index_kline_source_record", "interval": "5m", "cutoff": "12:30"},
+                    ok=True,
+                )
+                fact = upsert_index_history_from_sources(db, index_id=idx.id, trade_date=d, session=SessionType.AM)
+                if fact is not None:
+                    updated += 1
+                    details[str(d)] = {"turnover_amount": am_amount}
+
+            status = "success"
+            summary = {"updated": updated, "skipped": skipped, "days": len(by_day), "details": details}
+
         elif job_name == "backfill_hsi_am_yesterday":
-            
+
             # Backfill yesterday HSI AM turnover snapshot from Eastmoney minute kline (secid=100.HSI)
             from datetime import date as _date
 

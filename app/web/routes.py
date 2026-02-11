@@ -96,6 +96,16 @@ AVAILABLE_JOBS: tuple[dict, ...] = (
         ],
     },
     {
+        "name": "backfill_hsi_am_from_kline",
+        "label": "回填HSI半日成交(由K线聚合)",
+        "description": "基于 index_kline_source_record(EASTMONEY,5m) 聚合回填 HSI 的历史 AM turnover 到 index_quote_history。",
+        "targets": ["index_kline_source_record", "index_quote_source_record", "index_quote_history"],
+        "params": [
+            {"name": "date_from", "label": "Date from (YYYY-MM-DD, optional)", "type": "text", "placeholder": "2026-01-12"},
+            {"name": "date_to", "label": "Date to (YYYY-MM-DD, optional)", "type": "text", "placeholder": "2026-02-11"}
+        ],
+    },
+    {
         "name": "backfill_hkex",
         "label": "回填HKEX历史",
         "description": "从 HKEX 统计页面回填港股成交额历史（FULL）。",
