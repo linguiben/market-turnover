@@ -86,6 +86,16 @@ AVAILABLE_JOBS: tuple[dict, ...] = (
         "targets": ["index_quote_history", "index_quote_source_record"],
     },
     {
+        "name": "persist_eastmoney_kline_all",
+        "label": "保存Eastmoney分钟K线(可得范围)",
+        "description": "把 Eastmoney 当前可返回的 1m/5m 指数K线写入 index_kline_source_record（HSI/SSE/SZSE）。",
+        "targets": ["index_kline_source_record"],
+        "params": [
+            {"name": "lookback_days_1m", "label": "Lookback days (1m)", "type": "number", "placeholder": "365"},
+            {"name": "lookback_days_5m", "label": "Lookback days (5m)", "type": "number", "placeholder": "365"}
+        ],
+    },
+    {
         "name": "backfill_hkex",
         "label": "回填HKEX历史",
         "description": "从 HKEX 统计页面回填港股成交额历史（FULL）。",

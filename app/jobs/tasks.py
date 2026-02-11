@@ -412,7 +412,7 @@ def _persist_eastmoney_kline_rows(
                 "close": int(round(float(bar.close) * 100)) if bar.close is not None else None,
                 "volume": int(round(float(bar.volume))) if bar.volume is not None else None,
                 "turnover_amount": int(round(float(bar.amount))) if bar.amount is not None else None,
-                "turnover_currency": "CNY",
+                "turnover_currency": "HKD" if code.upper() == "HSI" else "CNY",
                 "asof_ts": bar_time,
                 "payload": {"ts_code": ts_code, "klt": klt, "raw": bar.raw},
                 "ok": True,
@@ -947,7 +947,61 @@ def run_job(db: Session, job_name: str, params: dict | None = None) -> JobRun:
             status = "success" if k_status in {"success", "skipped"} else ("partial" if k_status == "partial" else "failed")
             summary = {"kline": k_summary}
 
+        elif job_name == "persist_eastmoney_kline_all":
+            index_map = settings.tushare_index_map()
+            if not index_map:
+                status = "skipped"
+                summary = {"enabled": False, "reason": "TUSHARE_INDEX_CODES is empty"}
+            else:
+                lookback_days_1m = 365
+                lookback_days_5m = 365
+                try:
+                    if params and params.get("lookback_days_1m") is not None:
+                        lookback_days_1m = int(params.get("lookback_days_1m"))
+                    if params and params.get("lookback_days_5m") is not None:
+                        lookback_days_5m = int(params.get("lookback_days_5m"))
+                except Exception:
+                    pass
+
+                target = {k.upper(): v for k, v in index_map.items() if k.upper() in {"HSI", "SSE", "SZSE"}}
+                written = 0
+                rows = 0
+                details: dict[str, dict] = {}
+                errors: dict[str, str] = {}
+
+                for code, ts_code in target.items():
+                    per_code: dict[str, dict] = {}
+                    for klt, days in (("1", lookback_days_1m), ("5", lookback_days_5m)):
+                        key = "1m" if klt == "1" else "5m"
+                        try:
+                            stats = _persist_eastmoney_kline_rows(
+                                db,
+                                code=code,
+                                ts_code=ts_code if code != "HSI" else "HSI",
+                                klt=klt,
+                                lookback_days=days,
+                            )
+                            per_code[key] = stats
+                            written += int(stats.get("inserted") or 0)
+                            rows += int(stats.get("rows") or 0)
+                        except Exception as e:
+                            errors[f"{code}:{key}"] = str(e)
+                    details[code] = per_code
+
+                status = "success" if not errors else ("partial" if written else "failed")
+                summary = {
+                    "enabled": True,
+                    "source": "EASTMONEY",
+                    "rows": rows,
+                    "inserted": written,
+                    "lookback_days_1m": lookback_days_1m,
+                    "lookback_days_5m": lookback_days_5m,
+                    "details": details,
+                    "errors": errors,
+                }
+
         elif job_name == "backfill_hsi_am_yesterday":
+            
             # Backfill yesterday HSI AM turnover snapshot from Eastmoney minute kline (secid=100.HSI)
             from datetime import date as _date
 
