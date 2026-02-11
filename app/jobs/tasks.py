@@ -25,6 +25,7 @@ from app.sources.tushare_index import TushareIndexDaily, daily_row_asof, fetch_i
 from app.sources.tencent_index import fetch_index_daily_history as fetch_tencent_index_daily_history
 from app.sources.eastmoney_index import fetch_minute_kline, aggregate_halfday_and_fullday_amount
 from app.sources.eastmoney_intraday import fetch_intraday_snapshot as fetch_eastmoney_intraday_snapshot
+from app.sources.tushare_kline import fetch_index_kline
 
 
 def _persist_tushare_rows(
@@ -436,43 +437,142 @@ def _persist_eastmoney_kline_rows(
     }
 
 
+def _persist_tushare_kline_rows(
+    db: Session,
+    *,
+    code: str,
+    ts_code: str,
+    freq: str,
+    start_date: str,
+    end_date: str,
+) -> dict[str, int | str | None]:
+    token = (settings.TUSHARE_PRO_TOKEN or "").strip()
+    if not token:
+        raise RuntimeError("TUSHARE_PRO_TOKEN is empty")
+
+    bars = fetch_index_kline(
+        token=token,
+        ts_code=ts_code,
+        freq=freq,
+        start_date=start_date,
+        end_date=end_date,
+        timeout_seconds=settings.TUSHARE_TIMEOUT_SECONDS,
+    )
+
+    if not bars:
+        return {"rows": 0, "inserted": 0, "interval": freq, "date_from": None, "date_to": None}
+
+    index_row = ensure_market_index(db, code)
+    interval = KlineInterval.M1 if freq == "1min" else KlineInterval.M5
+    tz8 = timezone(timedelta(hours=8))
+
+    values: list[dict] = []
+    for bar in bars:
+        bar_time = bar.trade_time.replace(tzinfo=tz8)
+        values.append(
+            {
+                "index_id": index_row.id,
+                "interval": interval.value,
+                "bar_time": bar_time,
+                "trade_date": bar_time.date(),
+                "source": "TUSHARE",
+                "open": int(round(float(bar.open) * 100)) if bar.open is not None else None,
+                "high": int(round(float(bar.high) * 100)) if bar.high is not None else None,
+                "low": int(round(float(bar.low) * 100)) if bar.low is not None else None,
+                "close": int(round(float(bar.close) * 100)) if bar.close is not None else None,
+                "volume": int(round(float(bar.vol))) if bar.vol is not None else None,
+                "turnover_amount": int(round(float(bar.amount))) if bar.amount is not None else None,
+                "turnover_currency": "HKD" if code.upper() == "HSI" else "CNY",
+                "asof_ts": bar_time,
+                "payload": {"ts_code": ts_code, "freq": freq, "raw": bar.raw},
+                "ok": True,
+                "error": None,
+            }
+        )
+
+    stmt = pg_insert(IndexKlineSourceRecord.__table__).values(values)
+    stmt = stmt.on_conflict_do_nothing(
+        index_elements=["index_id", "interval", "bar_time", "source"],
+    ).returning(IndexKlineSourceRecord.id)
+    inserted_ids = list(db.execute(stmt).scalars())
+    db.commit()
+
+    dates = sorted({v["trade_date"] for v in values})
+    return {
+        "rows": len(values),
+        "inserted": len(inserted_ids),
+        "interval": interval.value,
+        "date_from": str(dates[0]) if dates else None,
+        "date_to": str(dates[-1]) if dates else None,
+    }
+
+
 def _backfill_intraday_kline_source(db: Session, *, lookback_days_5m: int = 90, lookback_days_1m: int = 2) -> tuple[str, dict]:
     index_map = settings.tushare_index_map()
     if not index_map:
         return "skipped", {"enabled": False, "reason": "TUSHARE_INDEX_CODES is empty"}
 
-    target = {k: v for k, v in index_map.items() if k.upper() in {"SSE", "SZSE"}}
-    if not target:
-        return "skipped", {"enabled": False, "reason": "No CN indices configured (need SSE/SZSE)"}
+    # NOTE: we persist multiple sources:
+    # - EASTMONEY for SSE/SZSE (stable public API)
+    # - TUSHARE for HSI/SSE/SZSE (subject to strict rate limits)
+    target = {k.upper(): v for k, v in index_map.items() if k.upper() in {"HSI", "SSE", "SZSE"}}
 
     written = 0
     rows = 0
     details: dict[str, dict] = {}
     errors: dict[str, str] = {}
 
+    today = date.today()
+    # Tushare uses YYYYMMDD
+    d1_start = (today - timedelta(days=lookback_days_1m)).strftime("%Y%m%d")
+    d5_start = (today - timedelta(days=lookback_days_5m)).strftime("%Y%m%d")
+    d_end = today.strftime("%Y%m%d")
+
     for code, ts_code in target.items():
         per_code: dict[str, dict] = {}
-        for klt, days in (("1", lookback_days_1m), ("5", lookback_days_5m)):
-            key = "1m" if klt == "1" else "5m"
+
+        # EASTMONEY (CN only)
+        if code in {"SSE", "SZSE"}:
+            for klt, days in (("1", lookback_days_1m), ("5", lookback_days_5m)):
+                key = f"EASTMONEY:{'1m' if klt == '1' else '5m'}"
+                try:
+                    stats = _persist_eastmoney_kline_rows(
+                        db,
+                        code=code,
+                        ts_code=ts_code,
+                        klt=klt,
+                        lookback_days=days,
+                    )
+                    per_code[key] = stats
+                    written += int(stats.get("inserted") or 0)
+                    rows += int(stats.get("rows") or 0)
+                except Exception as e:
+                    errors[f"{code}:{key}"] = str(e)
+
+        # TUSHARE (all 3)
+        for freq, start in (("1min", d1_start), ("5min", d5_start)):
+            key = f"TUSHARE:{'1m' if freq == '1min' else '5m'}"
             try:
-                stats = _persist_eastmoney_kline_rows(
+                stats = _persist_tushare_kline_rows(
                     db,
                     code=code,
                     ts_code=ts_code,
-                    klt=klt,
-                    lookback_days=days,
+                    freq=freq,
+                    start_date=start,
+                    end_date=d_end,
                 )
                 per_code[key] = stats
                 written += int(stats.get("inserted") or 0)
                 rows += int(stats.get("rows") or 0)
             except Exception as e:
                 errors[f"{code}:{key}"] = str(e)
+
         details[code] = per_code
 
     status = "success" if not errors else ("partial" if written > 0 else "failed")
     return status, {
         "enabled": True,
-        "source": "EASTMONEY",
+        "sources": ["EASTMONEY", "TUSHARE"],
         "rows": rows,
         "inserted": written,
         "lookback_days_1m": lookback_days_1m,
