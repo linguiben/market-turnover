@@ -62,13 +62,35 @@ def fetch_intraday_snapshot(
     if not klines:
         raise RuntimeError("Eastmoney intraday: empty klines")
 
+    # Use the last 1-min bar as the latest price snapshot, but aggregate turnover
+    # by summing per-bar amount/volume for the day (Eastmoney minute kline amount is per-bar).
     last_row = str(klines[-1])
     parts = last_row.split(",")
     # dt,open,close,high,low,vol,amount,...
     asof = datetime.strptime(parts[0], "%Y-%m-%d %H:%M")
     last = float(parts[2])
-    volume = float(parts[5]) if len(parts) > 5 and parts[5] else None
-    amount = float(parts[6]) if len(parts) > 6 and parts[6] else None
+
+    volume_sum = 0.0
+    amount_sum = 0.0
+    have_volume = False
+    have_amount = False
+    for row in klines:
+        p = str(row).split(",")
+        if len(p) > 5 and p[5]:
+            try:
+                volume_sum += float(p[5])
+                have_volume = True
+            except Exception:
+                pass
+        if len(p) > 6 and p[6]:
+            try:
+                amount_sum += float(p[6])
+                have_amount = True
+            except Exception:
+                pass
+
+    volume = volume_sum if have_volume else None
+    amount = amount_sum if have_amount else None
 
     pre_close = node.get("preKPrice")
     change = None
