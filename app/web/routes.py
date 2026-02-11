@@ -11,7 +11,15 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
-from app.db.models import HsiQuoteFact, IndexQuoteHistory, JobRun, MarketIndex, SessionType, TurnoverFact
+from app.db.models import (
+    HsiQuoteFact,
+    IndexQuoteHistory,
+    IndexRealtimeSnapshot,
+    JobRun,
+    MarketIndex,
+    SessionType,
+    TurnoverFact,
+)
 from app.jobs.tasks import run_job
 
 router = APIRouter()
@@ -71,6 +79,23 @@ def _latest_index_history(db: Session, *, index_id: int, session: SessionType) -
         .filter(IndexQuoteHistory.index_id == index_id)
         .filter(IndexQuoteHistory.session == session)
         .order_by(IndexQuoteHistory.trade_date.desc())
+        .first()
+    )
+
+
+def _today_realtime_snapshot(
+    db: Session,
+    *,
+    index_id: int,
+    session: SessionType,
+    today: date,
+) -> IndexRealtimeSnapshot | None:
+    return (
+        db.query(IndexRealtimeSnapshot)
+        .filter(IndexRealtimeSnapshot.index_id == index_id)
+        .filter(IndexRealtimeSnapshot.session == session)
+        .filter(IndexRealtimeSnapshot.trade_date == today)
+        .order_by(IndexRealtimeSnapshot.data_updated_at.desc())
         .first()
     )
 
@@ -180,6 +205,8 @@ def _fmt_sync_time(value: datetime | None) -> str:
 
 @router.get("/", response_class=HTMLResponse)
 def dashboard(request: Request, db: Session = Depends(get_db)):
+    today = date.today()
+
     market_indexes = (
         db.query(MarketIndex)
         .filter(MarketIndex.code.in_(INDEX_CODES))
@@ -196,12 +223,27 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
         index_row = index_by_code.get(code)
         full = None
         am = None
+        snap_full = None
+        snap_am = None
+
         if index_row is not None:
             full = _latest_index_history(db, index_id=index_row.id, session=SessionType.FULL)
             am = _latest_index_history(db, index_id=index_row.id, session=SessionType.AM)
+            # Prefer today's realtime snapshot for "today" card fields.
+            snap_full = _today_realtime_snapshot(db, index_id=index_row.id, session=SessionType.FULL, today=today)
+            snap_am = _today_realtime_snapshot(db, index_id=index_row.id, session=SessionType.AM, today=today)
 
-        full_turnover = full.turnover_amount if full is not None else None
-        am_turnover = am.turnover_amount if am is not None else None
+        # "today" turnover: snapshot first; fallback to history.
+        full_turnover = (
+            snap_full.turnover_amount
+            if snap_full is not None and snap_full.turnover_amount is not None
+            else (full.turnover_amount if full is not None else None)
+        )
+        am_turnover = (
+            snap_am.turnover_amount
+            if snap_am is not None and snap_am.turnover_amount is not None
+            else (am.turnover_amount if am is not None else None)
+        )
 
         full_turnover_series = (
             _turnover_series(db, index_id=index_row.id, session=SessionType.FULL) if index_row is not None else []
@@ -211,9 +253,16 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
         )
         points_series = _close_points_series(db, index_id=index_row.id) if index_row is not None else []
 
-        full_last = full.last if full is not None else None
-        price_change_pct = full.change_pct if full is not None else None
-        updated_at = full.asof_ts if full is not None else None
+        # "latest price" on homepage: today's realtime snapshot first; fallback to history.
+        full_last = snap_full.last if snap_full is not None else (full.last if full is not None else None)
+        price_change_pct = (
+            snap_full.change_pct if snap_full is not None and snap_full.change_pct is not None else (full.change_pct if full is not None else None)
+        )
+        updated_at = (
+            snap_full.data_updated_at
+            if snap_full is not None
+            else (full.asof_ts if full is not None else None)
+        )
         if updated_at is None and full is not None:
             updated_at = full.updated_at
 
@@ -312,7 +361,7 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
         "dashboard.html",
         {
             "request": request,
-            "today": date.today().isoformat(),
+            "today": today.isoformat(),
             "cards": cards,
             "charts": chart_items,
             "last_data_sync": last_data_sync,
