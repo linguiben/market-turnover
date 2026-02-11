@@ -11,6 +11,7 @@ class Settings(BaseSettings):
 
     APP_NAME: str = "market-turnover"
     TZ: str = "Asia/Shanghai"
+    ENABLE_SCHEDULED_JOBS: bool = False
 
     # If you expose behind reverse proxy at /market-turnover
     BASE_PATH: str = ""  # e.g. "/market-turnover"
