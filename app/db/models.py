@@ -199,6 +199,44 @@ Index("ix_index_quote_history_index_date", IndexQuoteHistory.index_id, IndexQuot
 Index("ix_index_quote_history_trade_session", IndexQuoteHistory.trade_date, IndexQuoteHistory.session)
 
 
+class IndexIntradayBar(Base):
+    __tablename__ = "index_intraday_bar"
+    __table_args__ = (
+        UniqueConstraint("index_id", "interval_min", "bar_ts", "source", name="uq_index_intraday_bar"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    index_id = Column(Integer, ForeignKey("market_index.id", ondelete="CASCADE"), nullable=False)
+
+    # Kline interval in minutes (1/5/15/...)
+    interval_min = Column(Integer, nullable=False)
+
+    # Bar timestamp (timezone-aware; stored as timestamptz)
+    bar_ts = Column(DateTime(timezone=True), nullable=False)
+
+    open = Column(Integer, nullable=True)  # *100
+    high = Column(Integer, nullable=True)  # *100
+    low = Column(Integer, nullable=True)  # *100
+    close = Column(Integer, nullable=False)  # *100
+
+    volume = Column(BigInteger, nullable=True)
+    amount = Column(BigInteger, nullable=True)
+    currency = Column(String(8), nullable=False)
+
+    source = Column(String(32), nullable=False)
+    payload = Column(JSONB, nullable=True)
+
+    fetched_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+Index(
+    "ix_index_intraday_bar_lookup",
+    IndexIntradayBar.index_id,
+    IndexIntradayBar.interval_min,
+    IndexIntradayBar.bar_ts.desc(),
+)
+
+
 class IndexRealtimeSnapshot(Base):
     __tablename__ = "index_realtime_snapshot"
     __table_args__ = (UniqueConstraint("index_id", "trade_date", name="uq_index_realtime_snapshot"),)

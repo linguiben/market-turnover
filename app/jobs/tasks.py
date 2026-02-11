@@ -16,6 +16,7 @@ from app.services.index_quote_resolver import (
     upsert_realtime_snapshot,
 )
 from app.services.resolver import upsert_fact_from_sources
+from app.services.intraday_bars import upsert_intraday_bar
 from app.sources.hkex import fetch_hkex_latest_table
 from app.sources.aastocks import fetch_midday_turnover
 from app.sources.aastocks_index import fetch_hsi_snapshot
@@ -557,7 +558,53 @@ def run_job(db: Session, job_name: str) -> JobRun:
             status = "success" if ts_status in {"success", "skipped"} else "partial"
             summary = {"tushare": ts_summary}
 
+        elif job_name == "fetch_intraday_bars_cn_5m":
+            # Persist CN index 5-minute kline bars (raw snapshots)
+            index_map = settings.tushare_index_map()
+            written = 0
+            errors: dict[str, str] = {}
+
+            for code in ("SSE", "SZSE"):
+                try:
+                    ts_code = (index_map.get(code) or "").strip()
+                    if not ts_code:
+                        raise RuntimeError("missing ts_code in TUSHARE_INDEX_CODES")
+
+                    # klt=5 minute bars, best-effort range
+                    bars = fetch_minute_kline(
+                        ts_code=ts_code,
+                        lookback_days=7,
+                        timeout_seconds=settings.HKEX_TIMEOUT_SECONDS,
+                        klt="5",
+                    )
+                    index_row = ensure_market_index(db, code)
+
+                    for bar in bars:
+                        upsert_intraday_bar(
+                            db,
+                            index_id=index_row.id,
+                            interval_min=5,
+                            bar_ts=bar.dt,
+                            tz="Asia/Shanghai",
+                            open_x100=int(round(bar.open * 100)) if bar.open is not None else None,
+                            high_x100=int(round(bar.high * 100)) if bar.high is not None else None,
+                            low_x100=int(round(bar.low * 100)) if bar.low is not None else None,
+                            close_x100=int(round(bar.close * 100)),
+                            volume=int(round(bar.volume)) if bar.volume is not None else None,
+                            amount=int(round(bar.amount)) if bar.amount is not None else None,
+                            currency="CNY",
+                            source="EASTMONEY",
+                            payload={"raw": bar.raw, "ts_code": ts_code},
+                        )
+                        written += 1
+                except Exception as e:
+                    errors[code] = str(e)
+
+            status = "success" if not errors else ("partial" if written else "failed")
+            summary = {"written": written, "errors": errors, "interval_min": 5, "source": "EASTMONEY"}
+
         elif job_name == "fetch_intraday_snapshot":
+
             # Intraday snapshot for HSI/SSE/SZSE
             index_map = settings.tushare_index_map()
             written = 0

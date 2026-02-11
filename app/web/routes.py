@@ -56,6 +56,11 @@ AVAILABLE_JOBS: tuple[dict[str, str], ...] = (
         "description": "抓取今日盘中快照：HSI(AASTOCKS), SSE/SZSE(EASTMONEY 1min)。",
     },
     {
+        "name": "fetch_intraday_bars_cn_5m",
+        "label": "保存A股 5分钟K线",
+        "description": "保存 SSE/SZSE 的 5分钟K线原始bar到 index_intraday_bar（EASTMONEY, lookback=7天）。",
+    },
+    {
         "name": "backfill_tushare_index",
         "label": "回填指数1年",
         "description": "回填最近 1 年 HSI/SSE/SZSE 日线数据（跳过已存在记录）。",

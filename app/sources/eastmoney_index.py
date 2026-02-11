@@ -10,7 +10,11 @@ import httpx
 class EastmoneyMinuteBar:
     trade_date: date
     dt: datetime
+    open: float | None
     close: float
+    high: float | None
+    low: float | None
+    volume: float | None
     amount: float | None  # 成交额 (yuan)
     raw: str
 
@@ -38,24 +42,51 @@ def _secid_from_ts_code(ts_code: str) -> str:
     raise ValueError(f"Unsupported ts_code for Eastmoney: {ts_code}")
 
 
+def _to_float(v: str | None) -> float | None:
+    if v is None:
+        return None
+    s = str(v).strip()
+    if not s:
+        return None
+    try:
+        return float(s)
+    except Exception:
+        return None
+
+
 def _parse_kline_rows(rows: list[str]) -> list[EastmoneyMinuteBar]:
     out: list[EastmoneyMinuteBar] = []
     for row in rows:
-        # Typical format (klt=1):
+        # Typical format:
         # "YYYY-MM-DD HH:MM,open,close,high,low,vol,amount,..."
         parts = str(row).split(",")
         if not parts:
             continue
         dt = datetime.strptime(parts[0], "%Y-%m-%d %H:%M")
-        close = float(parts[2])
-        amount = None
-        # With fields2=f51..f58, amount is usually the 7th column (index 6).
-        if len(parts) >= 7 and parts[6] not in (None, ""):
-            try:
-                amount = float(parts[6])
-            except Exception:
-                amount = None
-        out.append(EastmoneyMinuteBar(trade_date=dt.date(), dt=dt, close=close, amount=amount, raw=row))
+
+        open_ = _to_float(parts[1]) if len(parts) > 1 else None
+        close = float(parts[2]) if len(parts) > 2 and parts[2] not in (None, "") else None
+        high = _to_float(parts[3]) if len(parts) > 3 else None
+        low = _to_float(parts[4]) if len(parts) > 4 else None
+        volume = _to_float(parts[5]) if len(parts) > 5 else None
+        amount = _to_float(parts[6]) if len(parts) > 6 else None
+
+        if close is None:
+            continue
+
+        out.append(
+            EastmoneyMinuteBar(
+                trade_date=dt.date(),
+                dt=dt,
+                open=open_,
+                close=float(close),
+                high=high,
+                low=low,
+                volume=volume,
+                amount=amount,
+                raw=row,
+            )
+        )
     return out
 
 
