@@ -957,7 +957,9 @@ def run_job(db: Session, job_name: str, params: dict | None = None) -> JobRun:
 
             beg = trade_date.strftime("%Y%m%d")
             end = beg
-            bars = fetch_minute_kline(ts_code="HSI", lookback_days=1, timeout_seconds=settings.HKEX_TIMEOUT_SECONDS, klt="1", beg=beg, end=end)
+            # NOTE: For HSI, Eastmoney klt=1 often only returns the latest trading day.
+            # Use 5-minute bars to reliably cover the previous day.
+            bars = fetch_minute_kline(ts_code="HSI", lookback_days=2, timeout_seconds=settings.HKEX_TIMEOUT_SECONDS, klt="5", beg=beg, end=end)
 
             cutoff = time(12, 30)
             am_amount = 0.0
@@ -994,7 +996,7 @@ def run_job(db: Session, job_name: str, params: dict | None = None) -> JobRun:
                 data_updated_at=am_asof.replace(tzinfo=timezone(timedelta(hours=8))),
                 is_closed=True,
                 source="EASTMONEY",
-                payload={"klt": "1", "beg": beg, "end": end, "cutoff": "12:30", "bars": len(bars)},
+                payload={"klt": "5", "beg": beg, "end": end, "cutoff": "12:30", "bars": len(bars)},
             )
 
             status = "success"
