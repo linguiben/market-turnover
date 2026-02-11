@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from datetime import date, time
 
 from app.config import settings
-from app.db.models import IndexKlineSourceRecord, IndexQuoteSourceRecord, JobRun, HsiQuoteFact, KlineInterval, SessionType, TurnoverSourceRecord
+from app.db.models import IndexKlineSourceRecord, IndexQuoteSourceRecord, JobRun, HsiQuoteFact, KlineInterval, SessionType, TurnoverSourceRecord, IndexQuoteHistory
 from app.services.index_quote_resolver import (
     add_index_source_record,
     ensure_market_index,
@@ -25,6 +25,7 @@ from app.sources.tushare_index import TushareIndexDaily, daily_row_asof, fetch_i
 from app.sources.tencent_index import fetch_index_daily_history as fetch_tencent_index_daily_history
 from app.sources.eastmoney_index import fetch_minute_kline, aggregate_halfday_and_fullday_amount
 from app.sources.eastmoney_intraday import fetch_intraday_snapshot as fetch_eastmoney_intraday_snapshot
+from app.sources.tushare_kline import fetch_index_kline
 
 
 def _persist_tushare_rows(
@@ -411,7 +412,7 @@ def _persist_eastmoney_kline_rows(
                 "close": int(round(float(bar.close) * 100)) if bar.close is not None else None,
                 "volume": int(round(float(bar.volume))) if bar.volume is not None else None,
                 "turnover_amount": int(round(float(bar.amount))) if bar.amount is not None else None,
-                "turnover_currency": "CNY",
+                "turnover_currency": "HKD" if code.upper() == "HSI" else "CNY",
                 "asof_ts": bar_time,
                 "payload": {"ts_code": ts_code, "klt": klt, "raw": bar.raw},
                 "ok": True,
@@ -436,43 +437,143 @@ def _persist_eastmoney_kline_rows(
     }
 
 
+def _persist_tushare_kline_rows(
+    db: Session,
+    *,
+    code: str,
+    ts_code: str,
+    freq: str,
+    start_date: str,
+    end_date: str,
+) -> dict[str, int | str | None]:
+    token = (settings.TUSHARE_PRO_TOKEN or "").strip()
+    if not token:
+        raise RuntimeError("TUSHARE_PRO_TOKEN is empty")
+
+    bars = fetch_index_kline(
+        token=token,
+        ts_code=ts_code,
+        freq=freq,
+        start_date=start_date,
+        end_date=end_date,
+        timeout_seconds=settings.TUSHARE_TIMEOUT_SECONDS,
+    )
+
+    if not bars:
+        return {"rows": 0, "inserted": 0, "interval": freq, "date_from": None, "date_to": None}
+
+    index_row = ensure_market_index(db, code)
+    interval = KlineInterval.M1 if freq == "1min" else KlineInterval.M5
+    tz8 = timezone(timedelta(hours=8))
+
+    values: list[dict] = []
+    for bar in bars:
+        bar_time = bar.trade_time.replace(tzinfo=tz8)
+        values.append(
+            {
+                "index_id": index_row.id,
+                "interval": interval.value,
+                "bar_time": bar_time,
+                "trade_date": bar_time.date(),
+                "source": "TUSHARE",
+                "open": int(round(float(bar.open) * 100)) if bar.open is not None else None,
+                "high": int(round(float(bar.high) * 100)) if bar.high is not None else None,
+                "low": int(round(float(bar.low) * 100)) if bar.low is not None else None,
+                "close": int(round(float(bar.close) * 100)) if bar.close is not None else None,
+                "volume": int(round(float(bar.vol))) if bar.vol is not None else None,
+                "turnover_amount": int(round(float(bar.amount))) if bar.amount is not None else None,
+                "turnover_currency": "HKD" if code.upper() == "HSI" else "CNY",
+                "asof_ts": bar_time,
+                "payload": {"ts_code": ts_code, "freq": freq, "raw": bar.raw},
+                "ok": True,
+                "error": None,
+            }
+        )
+
+    stmt = pg_insert(IndexKlineSourceRecord.__table__).values(values)
+    stmt = stmt.on_conflict_do_nothing(
+        index_elements=["index_id", "interval", "bar_time", "source"],
+    ).returning(IndexKlineSourceRecord.id)
+    inserted_ids = list(db.execute(stmt).scalars())
+    db.commit()
+
+    dates = sorted({v["trade_date"] for v in values})
+    return {
+        "rows": len(values),
+        "inserted": len(inserted_ids),
+        "interval": interval.value,
+        "date_from": str(dates[0]) if dates else None,
+        "date_to": str(dates[-1]) if dates else None,
+    }
+
+
 def _backfill_intraday_kline_source(db: Session, *, lookback_days_5m: int = 90, lookback_days_1m: int = 2) -> tuple[str, dict]:
     index_map = settings.tushare_index_map()
     if not index_map:
         return "skipped", {"enabled": False, "reason": "TUSHARE_INDEX_CODES is empty"}
 
-    target = {k: v for k, v in index_map.items() if k.upper() in {"SSE", "SZSE"}}
-    if not target:
-        return "skipped", {"enabled": False, "reason": "No CN indices configured (need SSE/SZSE)"}
+    # NOTE: we persist multiple sources:
+    # - EASTMONEY for SSE/SZSE (stable public API)
+    # - TUSHARE for SSE/SZSE (subject to strict rate limits)
+    #   (HSI minute-kline on Tushare is too rate-limited; skip for now)
+    target = {k.upper(): v for k, v in index_map.items() if k.upper() in {"SSE", "SZSE"}}
 
     written = 0
     rows = 0
     details: dict[str, dict] = {}
     errors: dict[str, str] = {}
 
+    today = date.today()
+    # Tushare uses YYYYMMDD
+    d1_start = (today - timedelta(days=lookback_days_1m)).strftime("%Y%m%d")
+    d5_start = (today - timedelta(days=lookback_days_5m)).strftime("%Y%m%d")
+    d_end = today.strftime("%Y%m%d")
+
     for code, ts_code in target.items():
         per_code: dict[str, dict] = {}
-        for klt, days in (("1", lookback_days_1m), ("5", lookback_days_5m)):
-            key = "1m" if klt == "1" else "5m"
+
+        # EASTMONEY (CN only)
+        if code in {"SSE", "SZSE"}:
+            for klt, days in (("1", lookback_days_1m), ("5", lookback_days_5m)):
+                key = f"EASTMONEY:{'1m' if klt == '1' else '5m'}"
+                try:
+                    stats = _persist_eastmoney_kline_rows(
+                        db,
+                        code=code,
+                        ts_code=ts_code,
+                        klt=klt,
+                        lookback_days=days,
+                    )
+                    per_code[key] = stats
+                    written += int(stats.get("inserted") or 0)
+                    rows += int(stats.get("rows") or 0)
+                except Exception as e:
+                    errors[f"{code}:{key}"] = str(e)
+
+        # TUSHARE (SSE/SZSE only; keep calls minimal to avoid rate limits)
+        for freq, start in (("5min", d5_start),):
+            key = "TUSHARE:5m"
             try:
-                stats = _persist_eastmoney_kline_rows(
+                stats = _persist_tushare_kline_rows(
                     db,
                     code=code,
                     ts_code=ts_code,
-                    klt=klt,
-                    lookback_days=days,
+                    freq=freq,
+                    start_date=start,
+                    end_date=d_end,
                 )
                 per_code[key] = stats
                 written += int(stats.get("inserted") or 0)
                 rows += int(stats.get("rows") or 0)
             except Exception as e:
                 errors[f"{code}:{key}"] = str(e)
+
         details[code] = per_code
 
     status = "success" if not errors else ("partial" if written > 0 else "failed")
     return status, {
         "enabled": True,
-        "source": "EASTMONEY",
+        "sources": ["EASTMONEY", "TUSHARE"],
         "rows": rows,
         "inserted": written,
         "lookback_days_1m": lookback_days_1m,
@@ -482,8 +583,8 @@ def _backfill_intraday_kline_source(db: Session, *, lookback_days_5m: int = 90, 
     }
 
 
-def run_job(db: Session, job_name: str) -> JobRun:
-    run = JobRun(job_name=job_name, status="running")
+def run_job(db: Session, job_name: str, params: dict | None = None) -> JobRun:
+    run = JobRun(job_name=job_name, status="running", summary={"params": params} if params else None)
     db.add(run)
     db.commit()
     db.refresh(run)
@@ -682,6 +783,13 @@ def run_job(db: Session, job_name: str) -> JobRun:
             written = 0
             errors: dict[str, str] = {}
 
+            lookback_days = 7
+            try:
+                if params and params.get("lookback_days") is not None:
+                    lookback_days = int(params.get("lookback_days"))
+            except Exception:
+                lookback_days = 7
+
             for code in ("SSE", "SZSE"):
                 try:
                     ts_code = (index_map.get(code) or "").strip()
@@ -691,7 +799,7 @@ def run_job(db: Session, job_name: str) -> JobRun:
                     # klt=5 minute bars, best-effort range
                     bars = fetch_minute_kline(
                         ts_code=ts_code,
-                        lookback_days=7,
+                        lookback_days=lookback_days,
                         timeout_seconds=settings.HKEX_TIMEOUT_SECONDS,
                         klt="5",
                     )
@@ -719,53 +827,92 @@ def run_job(db: Session, job_name: str) -> JobRun:
                     errors[code] = str(e)
 
             status = "success" if not errors else ("partial" if written else "failed")
-            summary = {"written": written, "errors": errors, "interval_min": 5, "source": "EASTMONEY"}
+            summary = {"written": written, "errors": errors, "interval_min": 5, "source": "EASTMONEY", "lookback_days": lookback_days}
 
         elif job_name == "fetch_intraday_snapshot":
 
-            # Intraday snapshot for HSI/SSE/SZSE
+            # Intraday snapshot for indices (default: HSI,SSE,SZSE)
             index_map = settings.tushare_index_map()
             written = 0
             errors: dict[str, str] = {}
 
-            # 1) HSI from AASTOCKS
-            try:
-                snap = fetch_hsi_snapshot()
-                if snap.asof is not None:
-                    trade_date = snap.asof.date()
-                    asof = snap.asof
-                else:
-                    trade_date = date.today()
-                    asof = datetime.now(timezone.utc)
+            codes = ["HSI", "SSE", "SZSE"]
+            if params and params.get("codes"):
+                codes = [c.strip().upper() for c in str(params.get("codes")).split(",") if c.strip()]
 
-                index_row = ensure_market_index(db, "HSI")
-                upsert_realtime_snapshot(
-                    db,
-                    index_id=index_row.id,
-                    trade_date=trade_date,
-                    session=SessionType.FULL,
-                    last=int(round(float(snap.last) * 100)),
-                    change_points=int(round(float(snap.change) * 100)) if snap.change is not None else None,
-                    change_pct=int(round(float(snap.change_pct) * 100)) if snap.change_pct is not None else None,
-                    turnover_amount=int(snap.turnover_hkd) if snap.turnover_hkd is not None else None,
-                    turnover_currency="HKD",
-                    data_updated_at=asof,
-                    is_closed=False,
-                    source="AASTOCKS",
-                    payload={"raw": snap.raw},
-                )
-                written += 1
-            except Exception as e:
-                errors["HSI"] = str(e)
+            force_source = (str(params.get("force_source")).strip().upper() if params and params.get("force_source") else "")
+
+            # 1) HSI
+            if "HSI" in codes:
+                try:
+                    index_row = ensure_market_index(db, "HSI")
+
+                    if not force_source or force_source == "EASTMONEY":
+                        # Prefer Eastmoney for more precise last (2 decimals) and stable access.
+                        em = fetch_eastmoney_intraday_snapshot(ts_code="HSI", timeout_seconds=settings.HKEX_TIMEOUT_SECONDS)
+                        upsert_realtime_snapshot(
+                            db,
+                            index_id=index_row.id,
+                            trade_date=em.trade_date,
+                            session=SessionType.FULL,
+                            last=int(round(float(em.last) * 100)),
+                            change_points=int(round(float(em.change) * 100)) if em.change is not None else None,
+                            change_pct=int(round(float(em.pct_chg) * 100)) if em.pct_chg is not None else None,
+                            turnover_amount=int(round(float(em.amount))) if em.amount is not None else None,
+                            turnover_currency="HKD",
+                            data_updated_at=em.asof,
+                            is_closed=False,
+                            source="EASTMONEY",
+                            payload={"raw": em.raw, "ts_code": "HSI"},
+                        )
+                        written += 1
+                    else:
+                        if force_source != "AASTOCKS":
+                            raise RuntimeError(f"HSI snapshot only supports EASTMONEY/AASTOCKS (force_source={force_source})")
+
+                        snap = fetch_hsi_snapshot()
+                        if snap.asof is not None:
+                            trade_date = snap.asof.date()
+                            asof = snap.asof
+                        else:
+                            trade_date = date.today()
+                            asof = datetime.now(timezone.utc)
+
+                        upsert_realtime_snapshot(
+                            db,
+                            index_id=index_row.id,
+                            trade_date=trade_date,
+                            session=SessionType.FULL,
+                            last=int(round(float(snap.last) * 100)),
+                            change_points=int(round(float(snap.change) * 100)) if snap.change is not None else None,
+                            change_pct=int(round(float(snap.change_pct) * 100)) if snap.change_pct is not None else None,
+                            turnover_amount=int(snap.turnover_hkd) if snap.turnover_hkd is not None else None,
+                            turnover_currency="HKD",
+                            data_updated_at=asof,
+                            is_closed=False,
+                            source="AASTOCKS",
+                            payload={"raw": snap.raw},
+                        )
+                        written += 1
+
+                except Exception as e:
+                    errors["HSI"] = str(e)
 
             # 2) SSE/SZSE from Eastmoney intraday minute kline
             for code in ("SSE", "SZSE"):
+                if code not in codes:
+                    continue
                 try:
+                    if force_source and force_source != "EASTMONEY":
+                        raise RuntimeError(f"{code} snapshot only supports EASTMONEY currently (force_source={force_source})")
+
                     ts_code = (index_map.get(code) or "").strip()
                     if not ts_code:
                         raise RuntimeError("missing ts_code in TUSHARE_INDEX_CODES")
                     snap = fetch_eastmoney_intraday_snapshot(ts_code=ts_code, timeout_seconds=settings.HKEX_TIMEOUT_SECONDS)
                     index_row = ensure_market_index(db, code)
+
+                    # FULL snapshot (latest)
                     upsert_realtime_snapshot(
                         db,
                         index_id=index_row.id,
@@ -779,14 +926,33 @@ def run_job(db: Session, job_name: str) -> JobRun:
                         data_updated_at=snap.asof,
                         is_closed=False,
                         source="EASTMONEY",
-                        payload={"raw": snap.raw, "ts_code": ts_code},
+                        payload={"raw": snap.raw, "ts_code": ts_code, "scope": "FULL"},
                     )
                     written += 1
+
+                    # AM snapshot (<=12:30), for dashboard AM turnover selection
+                    if snap.am_amount is not None and snap.am_asof is not None:
+                        upsert_realtime_snapshot(
+                            db,
+                            index_id=index_row.id,
+                            trade_date=snap.trade_date,
+                            session=SessionType.AM,
+                            last=int(round(float(snap.am_last) * 100)) if snap.am_last is not None else int(round(float(snap.last) * 100)),
+                            change_points=int(round(float(snap.change) * 100)) if snap.change is not None else None,
+                            change_pct=int(round(float(snap.pct_chg) * 100)) if snap.pct_chg is not None else None,
+                            turnover_amount=int(round(float(snap.am_amount))),
+                            turnover_currency="CNY",
+                            data_updated_at=snap.am_asof,
+                            is_closed=False,
+                            source="EASTMONEY",
+                            payload={"raw": snap.raw, "ts_code": ts_code, "scope": "AM", "cutoff": "12:30"},
+                        )
+                        written += 1
                 except Exception as e:
                     errors[code] = str(e)
 
             status = "success" if not errors else ("partial" if written else "failed")
-            summary = {"written": written, "errors": errors}
+            summary = {"written": written, "errors": errors, "codes": codes, "force_source": force_source or None}
 
         elif job_name == "backfill_tushare_index":
             ts_status, ts_summary = _backfill_tushare_index_quotes(db, lookback_days=365)
@@ -802,6 +968,206 @@ def run_job(db: Session, job_name: str) -> JobRun:
             k_status, k_summary = _backfill_intraday_kline_source(db, lookback_days_5m=90, lookback_days_1m=2)
             status = "success" if k_status in {"success", "skipped"} else ("partial" if k_status == "partial" else "failed")
             summary = {"kline": k_summary}
+
+        elif job_name == "persist_eastmoney_kline_all":
+            index_map = settings.tushare_index_map()
+            if not index_map:
+                status = "skipped"
+                summary = {"enabled": False, "reason": "TUSHARE_INDEX_CODES is empty"}
+            else:
+                lookback_days_1m = 365
+                lookback_days_5m = 365
+                try:
+                    if params and params.get("lookback_days_1m") is not None:
+                        lookback_days_1m = int(params.get("lookback_days_1m"))
+                    if params and params.get("lookback_days_5m") is not None:
+                        lookback_days_5m = int(params.get("lookback_days_5m"))
+                except Exception:
+                    pass
+
+                target = {k.upper(): v for k, v in index_map.items() if k.upper() in {"HSI", "SSE", "SZSE"}}
+                written = 0
+                rows = 0
+                details: dict[str, dict] = {}
+                errors: dict[str, str] = {}
+
+                for code, ts_code in target.items():
+                    per_code: dict[str, dict] = {}
+                    for klt, days in (("1", lookback_days_1m), ("5", lookback_days_5m)):
+                        key = "1m" if klt == "1" else "5m"
+                        try:
+                            stats = _persist_eastmoney_kline_rows(
+                                db,
+                                code=code,
+                                ts_code=ts_code if code != "HSI" else "HSI",
+                                klt=klt,
+                                lookback_days=days,
+                            )
+                            per_code[key] = stats
+                            written += int(stats.get("inserted") or 0)
+                            rows += int(stats.get("rows") or 0)
+                        except Exception as e:
+                            errors[f"{code}:{key}"] = str(e)
+                    details[code] = per_code
+
+                status = "success" if not errors else ("partial" if written else "failed")
+                summary = {
+                    "enabled": True,
+                    "source": "EASTMONEY",
+                    "rows": rows,
+                    "inserted": written,
+                    "lookback_days_1m": lookback_days_1m,
+                    "lookback_days_5m": lookback_days_5m,
+                    "details": details,
+                    "errors": errors,
+                }
+
+        elif job_name == "backfill_hsi_am_from_kline":
+            # Aggregate HSI AM turnover from persisted kline rows (index_kline_source_record)
+            idx = ensure_market_index(db, "HSI")
+
+            date_from = None
+            date_to = None
+            if params and params.get("date_from"):
+                date_from = date.fromisoformat(str(params.get("date_from")).strip())
+            if params and params.get("date_to"):
+                date_to = date.fromisoformat(str(params.get("date_to")).strip())
+
+            q = (
+                db.query(IndexKlineSourceRecord)
+                .filter(IndexKlineSourceRecord.index_id == idx.id)
+                .filter(IndexKlineSourceRecord.source == "EASTMONEY")
+                .filter(IndexKlineSourceRecord.interval == KlineInterval.M5)
+                .filter(IndexKlineSourceRecord.ok.is_(True))
+            )
+            if date_from is not None:
+                q = q.filter(IndexKlineSourceRecord.trade_date >= date_from)
+            if date_to is not None:
+                q = q.filter(IndexKlineSourceRecord.trade_date <= date_to)
+            rows = q.order_by(IndexKlineSourceRecord.trade_date.asc(), IndexKlineSourceRecord.bar_time.asc()).all()
+
+            by_day: dict[date, list[IndexKlineSourceRecord]] = {}
+            for r in rows:
+                by_day.setdefault(r.trade_date, []).append(r)
+
+            cutoff = time(12, 30)
+            updated = 0
+            skipped = 0
+            details: dict[str, dict] = {}
+
+            for d, bars in sorted(by_day.items()):
+                # skip if already has AM history with turnover
+                existing = (
+                    db.query(IndexQuoteHistory)
+                    .filter(IndexQuoteHistory.index_id == idx.id)
+                    .filter(IndexQuoteHistory.trade_date == d)
+                    .filter(IndexQuoteHistory.session == SessionType.AM)
+                    .one_or_none()
+                )
+                if existing is not None and existing.turnover_amount is not None:
+                    skipped += 1
+                    continue
+
+                am_amount = 0
+                have_amount = False
+                am_close = None
+                am_asof = None
+
+                for r in bars:
+                    bt = r.bar_time
+                    try:
+                        bt_local = bt.astimezone(timezone(timedelta(hours=8)))
+                    except Exception:
+                        bt_local = bt
+                    if bt_local.time() <= cutoff:
+                        if r.turnover_amount is not None:
+                            am_amount += int(r.turnover_amount)
+                            have_amount = True
+                        if r.close is not None:
+                            am_close = int(r.close)
+                        am_asof = bt
+
+                if not have_amount or am_close is None:
+                    continue
+
+                add_index_source_record(
+                    db,
+                    index_id=idx.id,
+                    trade_date=d,
+                    session=SessionType.AM,
+                    source="EASTMONEY",
+                    last=am_close,
+                    change_points=None,
+                    change_pct=None,
+                    turnover_amount=am_amount,
+                    turnover_currency="HKD",
+                    asof_ts=am_asof,
+                    payload={"from": "index_kline_source_record", "interval": "5m", "cutoff": "12:30"},
+                    ok=True,
+                )
+                fact = upsert_index_history_from_sources(db, index_id=idx.id, trade_date=d, session=SessionType.AM)
+                if fact is not None:
+                    updated += 1
+                    details[str(d)] = {"turnover_amount": am_amount}
+
+            status = "success"
+            summary = {"updated": updated, "skipped": skipped, "days": len(by_day), "details": details}
+
+        elif job_name == "backfill_hsi_am_yesterday":
+
+            # Backfill yesterday HSI AM turnover snapshot from Eastmoney minute kline (secid=100.HSI)
+            from datetime import date as _date
+
+            trade_date = _date.today() - timedelta(days=1)
+            if params and params.get("trade_date"):
+                trade_date = _date.fromisoformat(str(params.get("trade_date")).strip())
+
+            beg = trade_date.strftime("%Y%m%d")
+            end = beg
+            # NOTE: For HSI, Eastmoney klt=1 often only returns the latest trading day.
+            # Use 5-minute bars to reliably cover the previous day.
+            bars = fetch_minute_kline(ts_code="HSI", lookback_days=2, timeout_seconds=settings.HKEX_TIMEOUT_SECONDS, klt="5", beg=beg, end=end)
+
+            cutoff = time(12, 30)
+            am_amount = 0.0
+            have_amount = False
+            am_close = None
+            am_asof = None
+            for bar in bars:
+                if bar.trade_date != trade_date:
+                    continue
+                if bar.dt.time() <= cutoff:
+                    if bar.amount is not None:
+                        am_amount += float(bar.amount)
+                        have_amount = True
+                    am_close = bar.close
+                    am_asof = bar.dt
+
+            if not have_amount:
+                raise RuntimeError("Eastmoney HSI AM: no amount rows")
+            if am_asof is None:
+                # fallback use cutoff timestamp
+                am_asof = datetime.combine(trade_date, cutoff)
+
+            index_row = ensure_market_index(db, "HSI")
+            upsert_realtime_snapshot(
+                db,
+                index_id=index_row.id,
+                trade_date=trade_date,
+                session=SessionType.AM,
+                last=int(round(float(am_close) * 100)) if am_close is not None else 0,
+                change_points=None,
+                change_pct=None,
+                turnover_amount=int(round(am_amount)),
+                turnover_currency="HKD",
+                data_updated_at=am_asof.replace(tzinfo=timezone(timedelta(hours=8))),
+                is_closed=True,
+                source="EASTMONEY",
+                payload={"klt": "5", "beg": beg, "end": end, "cutoff": "12:30", "bars": len(bars)},
+            )
+
+            status = "success"
+            summary = {"trade_date": str(trade_date), "turnover_amount": int(round(am_amount)), "bars": len(bars), "source": "EASTMONEY"}
 
         else:
             raise ValueError(f"Unknown job_name: {job_name}")

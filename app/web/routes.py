@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from datetime import date
-from datetime import datetime
+from datetime import datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
 import sqlalchemy as sa
 
@@ -34,46 +35,90 @@ templates.env.globals["format_hsi"] = format_hsi_price_x100
 
 INDEX_CODES = ("HSI", "SSE", "SZSE")
 INDEX_FALLBACK_NAMES = {"HSI": "恒生指数", "SSE": "上证指数", "SZSE": "深证成指"}
-AVAILABLE_JOBS: tuple[dict[str, str], ...] = (
+AVAILABLE_JOBS: tuple[dict, ...] = (
     {
         "name": "fetch_am",
         "label": "午盘抓取",
         "description": "抓取午盘成交额和 HSI 快照；同时尝试同步最新 Tushare 指数。",
+        "targets": ["turnover_source_record", "turnover_fact", "hsi_quote_fact"],
     },
     {
         "name": "fetch_full",
         "label": "全日抓取",
         "description": "抓取全日成交额和 HSI 快照；同时尝试同步最新 Tushare 指数。",
+        "targets": ["turnover_source_record", "turnover_fact", "hsi_quote_fact"],
     },
     {
         "name": "fetch_tushare_index",
         "label": "同步最新指数",
         "description": "同步 HSI/SSE/SZSE 的最新一个交易日(日线)数据。",
+        "targets": ["index_quote_source_record", "index_quote_history", "index_realtime_snapshot"],
     },
     {
         "name": "fetch_intraday_snapshot",
         "label": "抓取盘中快照",
         "description": "抓取今日盘中快照：HSI(AASTOCKS), SSE/SZSE(EASTMONEY 1min)。",
+        "targets": ["index_realtime_snapshot"],
+        "params": [
+            {"name": "codes", "label": "Index codes (comma)", "type": "text", "placeholder": "HSI,SSE,SZSE"},
+            {"name": "force_source", "label": "Force source (optional)", "type": "text", "placeholder": "AASTOCKS/EASTMONEY/TUSHARE"},
+        ],
     },
     {
         "name": "fetch_intraday_bars_cn_5m",
         "label": "保存A股 5分钟K线",
         "description": "保存 SSE/SZSE 的 5分钟K线原始bar到 index_intraday_bar（EASTMONEY, lookback=7天）。",
+        "targets": ["index_intraday_bar"],
+        "params": [
+            {"name": "lookback_days", "label": "Lookback days", "type": "number", "placeholder": "7"},
+        ],
     },
     {
         "name": "backfill_tushare_index",
         "label": "回填指数1年",
         "description": "回填最近 1 年 HSI/SSE/SZSE 日线数据（跳过已存在记录）。",
+        "targets": ["index_quote_source_record", "index_quote_history"],
     },
     {
         "name": "backfill_cn_halfday",
         "label": "回填A股半日成交(90天)",
         "description": "用 Eastmoney 分钟线回填 SSE/SZSE 的半日成交额与全日成交额（用于柱状图和均值）。",
+        "targets": ["index_quote_history", "index_quote_source_record"],
+    },
+    {
+        "name": "persist_eastmoney_kline_all",
+        "label": "保存Eastmoney分钟K线(可得范围)",
+        "description": "把 Eastmoney 当前可返回的 1m/5m 指数K线写入 index_kline_source_record（HSI/SSE/SZSE）。",
+        "targets": ["index_kline_source_record"],
+        "params": [
+            {"name": "lookback_days_1m", "label": "Lookback days (1m)", "type": "number", "placeholder": "365"},
+            {"name": "lookback_days_5m", "label": "Lookback days (5m)", "type": "number", "placeholder": "365"}
+        ],
+    },
+    {
+        "name": "backfill_hsi_am_from_kline",
+        "label": "回填HSI半日成交(由K线聚合)",
+        "description": "基于 index_kline_source_record(EASTMONEY,5m) 聚合回填 HSI 的历史 AM turnover 到 index_quote_history。",
+        "targets": ["index_kline_source_record", "index_quote_source_record", "index_quote_history"],
+        "params": [
+            {"name": "date_from", "label": "Date from (YYYY-MM-DD, optional)", "type": "text", "placeholder": "2026-01-12"},
+            {"name": "date_to", "label": "Date to (YYYY-MM-DD, optional)", "type": "text", "placeholder": "2026-02-11"}
+        ],
     },
     {
         "name": "backfill_hkex",
         "label": "回填HKEX历史",
         "description": "从 HKEX 统计页面回填港股成交额历史（FULL）。",
+        "targets": ["turnover_source_record", "turnover_fact"],
+    },
+    {
+        "name": "backfill_hsi_am_yesterday",
+        "label": "回填HSI昨日半日成交",
+        "description": "从 Eastmoney 1分钟K线聚合回填 HSI 昨日半日成交（<=12:30）。",
+        "targets": ["index_realtime_snapshot"],
+        "params": [
+            {"name": "trade_date", "label": "Trade date (YYYY-MM-DD, optional)", "type": "text", "placeholder": "2026-02-10"},
+        ],
     },
 )
 
@@ -88,21 +133,41 @@ def _latest_index_history(db: Session, *, index_id: int, session: SessionType) -
     )
 
 
-def _today_realtime_snapshot(
+def _latest_index_history_before(
     db: Session,
     *,
     index_id: int,
     session: SessionType,
-    today: date,
-) -> IndexRealtimeSnapshot | None:
+    before_date: date,
+) -> IndexQuoteHistory | None:
     return (
-        db.query(IndexRealtimeSnapshot)
-        .filter(IndexRealtimeSnapshot.index_id == index_id)
-        .filter(IndexRealtimeSnapshot.session == session)
-        .filter(IndexRealtimeSnapshot.trade_date == today)
-        .order_by(IndexRealtimeSnapshot.data_updated_at.desc())
+        db.query(IndexQuoteHistory)
+        .filter(IndexQuoteHistory.index_id == index_id)
+        .filter(IndexQuoteHistory.session == session)
+        .filter(IndexQuoteHistory.trade_date < before_date)
+        .order_by(IndexQuoteHistory.trade_date.desc())
         .first()
     )
+
+
+def _today_realtime_snapshot(
+    db: Session,
+    *,
+    index_id: int,
+    today: date,
+    session: SessionType | None = None,
+    updated_before: datetime | None = None,
+) -> IndexRealtimeSnapshot | None:
+    q = (
+        db.query(IndexRealtimeSnapshot)
+        .filter(IndexRealtimeSnapshot.index_id == index_id)
+        .filter(IndexRealtimeSnapshot.trade_date == today)
+    )
+    if session is not None:
+        q = q.filter(IndexRealtimeSnapshot.session == session)
+    if updated_before is not None:
+        q = q.filter(IndexRealtimeSnapshot.data_updated_at <= updated_before)
+    return q.order_by(IndexRealtimeSnapshot.id.desc()).first()
 
 
 def _turnover_series(
@@ -140,6 +205,16 @@ def _latest_turnover_fact(db: Session, *, session: SessionType) -> TurnoverFact 
     return (
         db.query(TurnoverFact)
         .filter(TurnoverFact.session == session)
+        .order_by(TurnoverFact.trade_date.desc())
+        .first()
+    )
+
+
+def _latest_turnover_fact_before(db: Session, *, session: SessionType, before_date: date) -> TurnoverFact | None:
+    return (
+        db.query(TurnoverFact)
+        .filter(TurnoverFact.session == session)
+        .filter(TurnoverFact.trade_date < before_date)
         .order_by(TurnoverFact.trade_date.desc())
         .first()
     )
@@ -234,20 +309,42 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
         if index_row is not None:
             full = _latest_index_history(db, index_id=index_row.id, session=SessionType.FULL)
             am = _latest_index_history(db, index_id=index_row.id, session=SessionType.AM)
-            # Prefer today's realtime snapshot for "today" card fields.
-            snap_full = _today_realtime_snapshot(db, index_id=index_row.id, session=SessionType.FULL, today=today)
-            snap_am = _today_realtime_snapshot(db, index_id=index_row.id, session=SessionType.AM, today=today)
 
-        # "today" turnover: snapshot first; fallback to history.
-        full_turnover = (
-            snap_full.turnover_amount
-            if snap_full is not None and snap_full.turnover_amount is not None
-            else (full.turnover_amount if full is not None else None)
-        )
+            # Today's turnover/price come from realtime snapshots.
+            snap_full = _today_realtime_snapshot(db, index_id=index_row.id, today=today, session=SessionType.FULL)
+
+            # AM turnover: latest snapshot updated at/before 12:30.
+            # - CN indices: we persist explicit session=AM rows.
+            # - HSI: we may only have session=FULL snapshots; use those as AM when <=12:30.
+            am_cutoff = datetime.combine(today, time(12, 30), tzinfo=ZoneInfo("Asia/Shanghai"))
+            snap_am = _today_realtime_snapshot(
+                db,
+                index_id=index_row.id,
+                today=today,
+                session=SessionType.AM,
+                updated_before=am_cutoff,
+            )
+            if snap_am is None and code == "HSI":
+                snap_am = _today_realtime_snapshot(
+                    db,
+                    index_id=index_row.id,
+                    today=today,
+                    session=SessionType.FULL,
+                    updated_before=am_cutoff,
+                )
+
+        # "today" turnover logic:
+        # AM: snapshot (<=12:30) -> history latest AM
+        # FULL: snapshot (latest today) -> history latest FULL -> (HSI) turnover_fact latest FULL
         am_turnover = (
             snap_am.turnover_amount
             if snap_am is not None and snap_am.turnover_amount is not None
             else (am.turnover_amount if am is not None else None)
+        )
+        full_turnover = (
+            snap_full.turnover_amount
+            if snap_full is not None and snap_full.turnover_amount is not None
+            else (full.turnover_amount if full is not None else None)
         )
 
         full_turnover_series = (
@@ -256,6 +353,48 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
         am_turnover_series = (
             _turnover_series(db, index_id=index_row.id, session=SessionType.AM) if index_row is not None else []
         )
+
+        # Yesterday turnover (previous trading day in history table)
+        yesterday_full_hist = (
+            _latest_index_history_before(db, index_id=index_row.id, session=SessionType.FULL, before_date=today)
+            if index_row is not None
+            else None
+        )
+        yesterday_am_hist = (
+            _latest_index_history_before(db, index_id=index_row.id, session=SessionType.AM, before_date=today)
+            if index_row is not None
+            else None
+        )
+        yesterday_full_turnover = yesterday_full_hist.turnover_amount if yesterday_full_hist is not None else None
+        yesterday_am_turnover = yesterday_am_hist.turnover_amount if yesterday_am_hist is not None else None
+
+        # HSI yesterday AM: allow backfill from realtime snapshots (append-only) when history table has no AM.
+        if code == "HSI" and index_row is not None and yesterday_am_turnover is None:
+            # Determine yesterday trading date (prefer history FULL date; else calendar yesterday)
+            y_date = yesterday_full_hist.trade_date if yesterday_full_hist is not None else (today - timedelta(days=1))
+            # Try snapshot session=AM first; fallback to session=FULL snapshot <=12:30
+            y_am_snap = (
+                db.query(IndexRealtimeSnapshot)
+                .filter(IndexRealtimeSnapshot.index_id == index_row.id)
+                .filter(IndexRealtimeSnapshot.trade_date == y_date)
+                .filter(IndexRealtimeSnapshot.session == SessionType.AM)
+                .order_by(IndexRealtimeSnapshot.id.desc())
+                .first()
+            )
+            if y_am_snap is None:
+                y_cutoff = datetime.combine(y_date, time(12, 30), tzinfo=ZoneInfo("Asia/Shanghai"))
+                y_am_snap = (
+                    db.query(IndexRealtimeSnapshot)
+                    .filter(IndexRealtimeSnapshot.index_id == index_row.id)
+                    .filter(IndexRealtimeSnapshot.trade_date == y_date)
+                    .filter(IndexRealtimeSnapshot.session == SessionType.FULL)
+                    .filter(IndexRealtimeSnapshot.data_updated_at <= y_cutoff)
+                    .order_by(IndexRealtimeSnapshot.id.desc())
+                    .first()
+                )
+            if y_am_snap is not None and y_am_snap.turnover_amount is not None:
+                yesterday_am_turnover = int(y_am_snap.turnover_amount)
+
         points_series = _close_points_series(db, index_id=index_row.id) if index_row is not None else []
 
         # "latest price" on homepage: today's realtime snapshot first; fallback to history.
@@ -274,7 +413,6 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
         if code == "HSI":
             fallback_quote_full = _latest_hsi_quote(db, session=SessionType.FULL)
             fallback_turnover_full = _latest_turnover_fact(db, session=SessionType.FULL)
-            fallback_turnover_am = _latest_turnover_fact(db, session=SessionType.AM)
 
             if full_last is None and fallback_quote_full is not None:
                 full_last = fallback_quote_full.last
@@ -283,12 +421,17 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
             if updated_at is None and fallback_quote_full is not None:
                 updated_at = fallback_quote_full.asof_ts or fallback_quote_full.updated_at
 
+            # FULL turnover (HSI): if still missing, fallback to turnover_fact FULL.
             if full_turnover is None and fallback_turnover_full is not None:
                 full_turnover = fallback_turnover_full.turnover_hkd
-            if am_turnover is None and fallback_turnover_am is not None:
-                am_turnover = fallback_turnover_am.turnover_hkd
             if updated_at is None and fallback_turnover_full is not None:
                 updated_at = fallback_turnover_full.updated_at
+
+            # Yesterday FULL turnover (HSI): if missing, fallback to turnover_fact FULL.
+            if yesterday_full_turnover is None:
+                y_full_fact = _latest_turnover_fact_before(db, session=SessionType.FULL, before_date=today)
+                if y_full_fact is not None:
+                    yesterday_full_turnover = y_full_fact.turnover_hkd
 
             if not full_turnover_series:
                 full_turnover_series = _turnover_fact_series(db, session=SessionType.FULL)
@@ -311,8 +454,24 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
         if updated_at is not None:
             sync_points.append(updated_at)
 
+        # Peak FULL turnover over history (not limited by series length).
         peak_ratio = None
-        peak_turnover = max(full_turnover_series) if full_turnover_series else None
+        peak_turnover = None
+        if index_row is not None:
+            if code == "HSI":
+                peak_turnover = (
+                    db.query(sa.func.max(TurnoverFact.turnover_hkd))
+                    .filter(TurnoverFact.session == SessionType.FULL)
+                    .scalar()
+                )
+            else:
+                peak_turnover = (
+                    db.query(sa.func.max(IndexQuoteHistory.turnover_amount))
+                    .filter(IndexQuoteHistory.index_id == index_row.id)
+                    .filter(IndexQuoteHistory.session == SessionType.FULL)
+                    .scalar()
+                )
+
         if full_turnover and peak_turnover:
             peak_ratio = round(full_turnover / peak_turnover * 100)
         ratio_to_peak[code] = peak_ratio
@@ -341,12 +500,14 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
                     "maxPoints": round(max_points, 2),
                     "todayVolAM": _to_yi(am_turnover),
                     "todayVolDay": _to_yi(full_turnover),
+                    "yesterdayVolAM": _to_yi(yesterday_am_turnover),
+                    "yesterdayVolDay": _to_yi(yesterday_full_turnover),
                     "avgVolAM": _avg(am_turnover_series, 5),
                     "avgVolDay": _avg(full_turnover_series, 5),
                     "tenAvgVolAM": _avg(am_turnover_series, 10),
                     "tenAvgVolDay": _avg(full_turnover_series, 10),
                     "maxVolAM": _to_yi(max(am_turnover_series) if am_turnover_series else None),
-                    "maxVolDay": _to_yi(max(full_turnover_series) if full_turnover_series else None),
+                    "maxVolDay": _to_yi(int(peak_turnover) if peak_turnover is not None else None),
                 },
             }
         )
@@ -354,9 +515,11 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
     last_data_sync = _fmt_sync_time(max(sync_points) if sync_points else None)
     hsi_ratio = ratio_to_peak.get("HSI")
     sse_ratio = ratio_to_peak.get("SSE")
+    szse_ratio = ratio_to_peak.get("SZSE")
     insight_text = (
         f"当前恒生指数全日成交量约为近期峰值的 {hsi_ratio}% ，"
-        f"上证指数约为 {sse_ratio if sse_ratio is not None else '--'}% 。"
+        f"上证指数约为 {sse_ratio if sse_ratio is not None else '--'}% ，"
+        f"深证成指约为 {szse_ratio if szse_ratio is not None else '--'}% 。"
         "若指数点位走强且成交量继续放大，趋势延续概率更高；反之需关注量价背离。"
         if hsi_ratio is not None
         else "暂无足够历史数据生成量价分析，请先运行 backfill_tushare_index 或 fetch_tushare_index / fetch_full 同步数据。"
@@ -373,6 +536,7 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
             "insight_text": insight_text,
             "hsi_ratio": hsi_ratio,
             "sse_ratio": sse_ratio,
+            "szse_ratio": szse_ratio,
         },
     )
 
@@ -418,7 +582,31 @@ def jobs(request: Request, db: Session = Depends(get_db)):
 
 
 @router.post("/api/jobs/run")
-def jobs_run(request: Request, job_name: str = Form(...), db: Session = Depends(get_db)):
-    run_job(db, job_name)
+async def jobs_run(request: Request, job_name: str = Form(...), db: Session = Depends(get_db)):
+    form = await request.form()
+
+    params: dict = {}
+    params_json = (form.get("params_json") or "").strip()
+    if params_json:
+        import json
+
+        params.update(json.loads(params_json))
+
+    # Collect param_* fields
+    for k, v in form.items():
+        if not k.startswith("param_"):
+            continue
+        name = k[len("param_") :]
+        if v is None:
+            continue
+        if isinstance(v, str):
+            val = v.strip()
+            if val == "":
+                continue
+        else:
+            val = v
+        params[name] = val
+
+    run_job(db, job_name, params=params or None)
     base = (request.scope.get("root_path") or "").rstrip("/")
     return RedirectResponse(url=f"{base}/jobs", status_code=303)

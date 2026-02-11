@@ -6,12 +6,41 @@ from datetime import date, datetime
 import httpx
 
 
-def _secid_from_ts_code(ts_code: str) -> str:
+_SECID_CACHE: dict[str, str] = {}
+
+
+def _secid_from_ts_code(ts_code: str, *, timeout_seconds: int = 15) -> str:
     ts_code = ts_code.strip().upper()
+
+    if ts_code in _SECID_CACHE:
+        return _SECID_CACHE[ts_code]
+
     if ts_code.endswith(".SH"):
-        return "1." + ts_code.split(".")[0]
+        secid = "1." + ts_code.split(".")[0]
+        _SECID_CACHE[ts_code] = secid
+        return secid
     if ts_code.endswith(".SZ"):
-        return "0." + ts_code.split(".")[0]
+        secid = "0." + ts_code.split(".")[0]
+        _SECID_CACHE[ts_code] = secid
+        return secid
+
+    if ts_code == "HSI":
+        with httpx.Client(timeout=timeout_seconds, headers={"User-Agent": "market-turnover/0.1"}) as client:
+            resp = client.get(
+                "https://searchapi.eastmoney.com/api/suggest/get",
+                params={"input": "HSI", "type": "14", "count": "10"},
+            )
+            resp.raise_for_status()
+            data = resp.json() or {}
+        rows = (((data.get("QuotationCodeTable") or {}).get("Data")) or [])
+        for row in rows:
+            if (row or {}).get("Code") == "HSI":
+                quote_id = (row or {}).get("QuoteID")
+                if quote_id:
+                    _SECID_CACHE[ts_code] = str(quote_id)
+                    return str(quote_id)
+        raise ValueError("Eastmoney suggest did not return QuoteID for HSI")
+
     raise ValueError(f"Unsupported ts_code for Eastmoney: {ts_code}")
 
 
@@ -22,8 +51,12 @@ class EastmoneyIntradaySnapshot:
     last: float
     change: float | None
     pct_chg: float | None
-    amount: float | None  # yuan
-    volume: float | None
+    amount: float | None  # full-day cumulative (sum of minute bars), yuan
+    volume: float | None  # full-day cumulative (sum of minute bars)
+    am_asof: datetime | None
+    am_last: float | None
+    am_amount: float | None  # AM cumulative (<=12:30), yuan
+    am_volume: float | None
     raw: dict
 
 
@@ -31,14 +64,18 @@ def fetch_intraday_snapshot(
     *,
     ts_code: str,
     timeout_seconds: int = 15,
+    am_cutoff_hhmm: str = "12:30",
 ) -> EastmoneyIntradaySnapshot:
-    """Fetch latest intraday snapshot using Eastmoney minute kline endpoint.
+    """Fetch intraday snapshot using Eastmoney minute kline endpoint.
 
-    Uses klt=1 and beg=end=today to get today's 1-min klines; uses the last bar.
+    - Price snapshot: last 1-min bar.
+    - Turnover: sum of per-bar amount/volume for the day.
+    - AM turnover: sum for bars with time <= am_cutoff_hhmm (default 12:30).
+
     preKPrice from response is used to compute change/pct.
     """
 
-    secid = _secid_from_ts_code(ts_code)
+    secid = _secid_from_ts_code(ts_code, timeout_seconds=timeout_seconds)
     today = date.today().strftime("%Y%m%d")
 
     params = {
@@ -62,13 +99,72 @@ def fetch_intraday_snapshot(
     if not klines:
         raise RuntimeError("Eastmoney intraday: empty klines")
 
+    # Use the last 1-min bar as the latest price snapshot.
     last_row = str(klines[-1])
     parts = last_row.split(",")
     # dt,open,close,high,low,vol,amount,...
     asof = datetime.strptime(parts[0], "%Y-%m-%d %H:%M")
     last = float(parts[2])
-    volume = float(parts[5]) if len(parts) > 5 and parts[5] else None
-    amount = float(parts[6]) if len(parts) > 6 and parts[6] else None
+
+    # Aggregate turnover (Eastmoney minute kline amount/vol is per-bar).
+    volume_sum = 0.0
+    amount_sum = 0.0
+    have_volume = False
+    have_amount = False
+
+    am_volume_sum = 0.0
+    am_amount_sum = 0.0
+    have_am_volume = False
+    have_am_amount = False
+    am_asof: datetime | None = None
+    am_last: float | None = None
+
+    cutoff_h, cutoff_m = [int(x) for x in am_cutoff_hhmm.split(":", 1)]
+
+    for row in klines:
+        p = str(row).split(",")
+        if not p or not p[0]:
+            continue
+        try:
+            dt = datetime.strptime(p[0], "%Y-%m-%d %H:%M")
+        except Exception:
+            continue
+
+        is_am = (dt.hour < cutoff_h) or (dt.hour == cutoff_h and dt.minute <= cutoff_m)
+
+        if len(p) > 5 and p[5]:
+            try:
+                v = float(p[5])
+                volume_sum += v
+                have_volume = True
+                if is_am:
+                    am_volume_sum += v
+                    have_am_volume = True
+            except Exception:
+                pass
+
+        if len(p) > 6 and p[6]:
+            try:
+                a = float(p[6])
+                amount_sum += a
+                have_amount = True
+                if is_am:
+                    am_amount_sum += a
+                    have_am_amount = True
+            except Exception:
+                pass
+
+        if is_am and len(p) > 2 and p[2]:
+            try:
+                am_last = float(p[2])
+                am_asof = dt
+            except Exception:
+                pass
+
+    volume = volume_sum if have_volume else None
+    amount = amount_sum if have_amount else None
+    am_volume = am_volume_sum if have_am_volume else None
+    am_amount = am_amount_sum if have_am_amount else None
 
     pre_close = node.get("preKPrice")
     change = None
@@ -91,5 +187,9 @@ def fetch_intraday_snapshot(
         pct_chg=pct,
         amount=amount,
         volume=volume,
+        am_asof=am_asof,
+        am_last=am_last,
+        am_amount=am_amount,
+        am_volume=am_volume,
         raw={"resp": data, "row": last_row},
     )

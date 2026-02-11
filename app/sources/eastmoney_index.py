@@ -31,15 +31,50 @@ class EastmoneyIntradaySnapshot:
     raw: dict
 
 
-def _secid_from_ts_code(ts_code: str) -> str:
-    """Convert ts_code like 000001.SH / 399001.SZ to Eastmoney secid."""
+_SECID_CACHE: dict[str, str] = {}
+
+
+def _secid_from_ts_code(ts_code: str, *, timeout_seconds: int = 20) -> str:
+    """Convert symbol to Eastmoney secid.
+
+    Supported:
+      - CN index ts_code like 000001.SH / 399001.SZ -> 1.000001 / 0.399001
+      - HSI -> resolved via Eastmoney suggest API -> e.g. 100.HSI
+    """
 
     ts_code = ts_code.strip().upper()
+
+    if ts_code in _SECID_CACHE:
+        return _SECID_CACHE[ts_code]
+
     if ts_code.endswith(".SH"):
-        return "1." + ts_code.split(".")[0]
+        secid = "1." + ts_code.split(".")[0]
+        _SECID_CACHE[ts_code] = secid
+        return secid
     if ts_code.endswith(".SZ"):
-        return "0." + ts_code.split(".")[0]
-    raise ValueError(f"Unsupported ts_code for Eastmoney: {ts_code}")
+        secid = "0." + ts_code.split(".")[0]
+        _SECID_CACHE[ts_code] = secid
+        return secid
+
+    # HSI (HK index) - resolve by keyword
+    if ts_code == "HSI":
+        with httpx.Client(timeout=timeout_seconds, headers={"User-Agent": "market-turnover/0.1"}) as client:
+            resp = client.get(
+                "https://searchapi.eastmoney.com/api/suggest/get",
+                params={"input": "HSI", "type": "14", "count": "10"},
+            )
+            resp.raise_for_status()
+            data = resp.json() or {}
+        rows = (((data.get("QuotationCodeTable") or {}).get("Data")) or [])
+        for row in rows:
+            if (row or {}).get("Code") == "HSI":
+                quote_id = (row or {}).get("QuoteID")
+                if quote_id:
+                    _SECID_CACHE[ts_code] = str(quote_id)
+                    return str(quote_id)
+        raise ValueError("Eastmoney suggest did not return QuoteID for HSI")
+
+    raise ValueError(f"Unsupported symbol for Eastmoney: {ts_code}")
 
 
 def _to_float(v: str | None) -> float | None:
@@ -96,6 +131,8 @@ def fetch_minute_kline(
     lookback_days: int = 30,
     timeout_seconds: int = 20,
     klt: str = "5",
+    beg: str | None = None,
+    end: str | None = None,
 ) -> list[EastmoneyMinuteBar]:
     """Fetch intraday kline for an index from Eastmoney public API.
 
@@ -116,9 +153,11 @@ def fetch_minute_kline(
     if lookback_days <= 0:
         raise ValueError("lookback_days must be positive")
 
-    secid = _secid_from_ts_code(ts_code)
-    beg = (date.today() - timedelta(days=lookback_days)).strftime("%Y%m%d")
-    end = date.today().strftime("%Y%m%d")
+    secid = _secid_from_ts_code(ts_code, timeout_seconds=timeout_seconds)
+    if beg is None:
+        beg = (date.today() - timedelta(days=lookback_days)).strftime("%Y%m%d")
+    if end is None:
+        end = date.today().strftime("%Y%m%d")
 
     params = {
         "secid": secid,

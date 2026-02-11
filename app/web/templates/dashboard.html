@@ -73,18 +73,25 @@
             <div class="text-2xl font-black text-emerald-400">{{ sse_ratio if sse_ratio is not none else '--' }}%</div>
             <div class="text-[10px] text-slate-500 tracking-tighter">SSE vs MAX</div>
           </div>
+          <div class="text-center">
+            <div class="text-2xl font-black text-fuchsia-400">{{ szse_ratio if szse_ratio is not none else '--' }}%</div>
+            <div class="text-[10px] text-slate-500 tracking-tighter">SZSE vs MAX</div>
+          </div>
         </div>
       </div>
     </div>
+
+    {% include "_footer.html" %}
   </div>
 
   <script>
     function getOption(data) {
-      const gaugeMax = data.maxPoints > 0 ? data.maxPoints : 1;
+      // Gauge: show turnover peak vs today's FULL turnover (B)
+      const gaugeMax = data.maxVolDay > 0 ? data.maxVolDay : 1;
       return {
         tooltip: { trigger: "axis", axisPointer: { type: "shadow" } },
         legend: {
-          data: ["当日成交", "5日均值", "10日均值"],
+          data: ["当日成交", "昨日成交", "5日均值", "10日均值"],
           bottom: "0",
           textStyle: { color: "#94a3b8" }
         },
@@ -120,7 +127,7 @@
               color: "#64748b",
               fontSize: 10,
               formatter: function (value) {
-                if (value === gaugeMax) return "PEAK: " + gaugeMax.toFixed(2);
+                if (value === gaugeMax) return "PEAK: " + gaugeMax.toFixed(2) + " B";
                 return "";
               }
             },
@@ -129,14 +136,16 @@
               fontSize: 16,
               fontWeight: "bold",
               color: "#ffffff",
-              formatter: "{value}"
+              formatter: function (value) {
+                return value.toFixed(2) + " B";
+              }
             },
-            data: [{ value: data.todayPoints }]
+            data: [{ value: data.todayVolDay }]
           },
           {
             name: "当日成交",
             type: "bar",
-            barWidth: 16,
+            barWidth: 14,
             data: [data.todayVolAM, data.todayVolDay],
             itemStyle: { color: "#60a5fa", borderRadius: [2, 2, 0, 0] },
             markLine: {
@@ -150,18 +159,25 @@
             }
           },
           {
+            name: "昨日成交",
+            type: "bar",
+            barWidth: 14,
+            data: [data.yesterdayVolAM, data.yesterdayVolDay],
+            itemStyle: { color: "#475569", borderRadius: [2, 2, 0, 0] }
+          },
+          {
             name: "5日均值",
             type: "bar",
-            barWidth: 16,
+            barWidth: 14,
             data: [data.avgVolAM, data.avgVolDay],
             itemStyle: { color: "#334155", borderRadius: [2, 2, 0, 0] }
           },
           {
             name: "10日均值",
             type: "bar",
-            barWidth: 16,
+            barWidth: 14,
             data: [data.tenAvgVolAM, data.tenAvgVolDay],
-            itemStyle: { color: "#475569", borderRadius: [2, 2, 0, 0] }
+            itemStyle: { color: "#1f2937", borderRadius: [2, 2, 0, 0] }
           }
         ]
       };

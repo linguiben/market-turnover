@@ -28,7 +28,13 @@ class Settings(BaseSettings):
 
     CUTOFF_TIME_AM: str = "12:00:00"  # HH:MM:SS
     RECENT_TRADING_DAYS: int = 30
-    SOURCE_PRIORITY: str = "HKEX,TENCENT,AASTOCKS,TUSHARE"
+    # Source priority for daily/aggregated facts.
+    # Jupiter preference: prefer Tushare Pro for all indices when available.
+    SOURCE_PRIORITY: str = "TUSHARE,HKEX,EASTMONEY,TENCENT,AASTOCKS"
+
+    # Scheduler
+    SNAPSHOT_SCHEDULE_ENABLED: bool = True
+    SNAPSHOT_INTERVAL_SECONDS: int = 300
 
     # Tencent
     TENCENT_API_KEY: str | None = None
