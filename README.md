@@ -15,6 +15,14 @@ docker compose up -d --build
 # then open http://localhost:8000
 ```
 
+## Scheduled jobs switch
+- `ENABLE_SCHEDULED_JOBS=false` (default): do not start scheduler.
+- `ENABLE_SCHEDULED_JOBS=true`: start APScheduler on app startup.
+- Built-in schedules (timezone follows `TZ`):
+  - `fetch_intraday_snapshot`: Mon-Fri, every 5 minutes, 09:00-16:59
+  - `fetch_am`: Mon-Fri, 11:35
+  - `fetch_full`: Mon-Fri, 16:10
+
 ## Tushare Pro datasource
 - Configure `TUSHARE_PRO_TOKEN` in `.env` (from https://tushare.pro).
 - Optional: `TUSHARE_PRO_BASE`, `TUSHARE_TIMEOUT_SECONDS`, `TUSHARE_INDEX_CODES`.
@@ -49,7 +57,7 @@ deactivate # Deactivate venv
   启动后先测：
 
   curl -i http://localhost:8000/healthz
-  curl -i http://localhost:8000/market-turnover/healthz
+  curl -i http://localhost:8000/market-turnover
 
   再打开：
   http://localhost:8000/market-turnover/（建议带末尾 /）。
