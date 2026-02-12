@@ -71,6 +71,18 @@ def _build_scheduler() -> BackgroundScheduler:
         coalesce=True,
         max_instances=1,
     )
+
+    # Daily Tushare index sync at 20:00.
+    scheduler.add_job(
+        _run_job_with_new_session,
+        CronTrigger(hour=20, minute=0),
+        kwargs={"job_name": "fetch_tushare_index"},
+        id="fetch_tushare_index_cron",
+        replace_existing=True,
+        coalesce=True,
+        max_instances=1,
+        misfire_grace_time=600,
+    )
     scheduler.add_job(
         _run_job_with_new_session,
         CronTrigger(day_of_week="mon-fri", hour=16, minute=10),
