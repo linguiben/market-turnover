@@ -588,15 +588,15 @@ def _backfill_intraday_kline_source(db: Session, *, lookback_days_5m: int = 90, 
 
 
 def _refresh_home_global_quotes(db: Session) -> tuple[str, dict]:
+    """Refresh homepage global quotes cache.
+
+    Disabled by default because some deployment environments may have blocked/slow DNS,
+    which would cause this job to hang and potentially affect server responsiveness.
+
+    You can re-enable it once outbound DNS/HTTPS is confirmed working.
+    """
     symbols = ["r_hkHSI", "usDJI", "usIXIC", "s_sh000001", "s_sz399001"]
-    try:
-        quotes = fetch_quotes(symbols, timeout_seconds=10)
-        payload = {"symbols": symbols, "items": [asdict(q) for q in quotes]}
-        upsert_cache(db, key="homepage:global_quotes", payload=payload)
-        return "success", {"rows": len(quotes), "symbols": symbols}
-    except Exception as e:
-        # keep last cache; report partial
-        return "partial", {"symbols": symbols, "error": str(e)}
+    return "partial", {"symbols": symbols, "disabled": True, "reason": "outbound DNS/HTTPS may be blocked"}
 
 
 def _refresh_home_trade_corridor(db: Session) -> tuple[str, dict]:

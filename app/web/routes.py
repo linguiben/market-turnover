@@ -619,12 +619,9 @@ def dashboard(
     if cached is not None and isinstance(cached.payload, dict) and cached.payload.get("items"):
         global_quotes = cached.payload.get("items") or []
     else:
-        try:
-            quotes = fetch_quotes(global_symbols)
-            global_quotes = [q.__dict__ for q in quotes]
-            upsert_cache(db, key="homepage:global_quotes", payload={"symbols": global_symbols, "items": global_quotes})
-        except Exception:
-            global_quotes = []
+        # IMPORTANT: do not fetch remote quotes on the request path.
+        # Some environments may have blocked/slow DNS, which would hang the homepage.
+        global_quotes = []
 
     # Trade corridor highlights (POC: mock)
     corridor = None

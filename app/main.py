@@ -5,6 +5,13 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+# Debug aid: allow dumping stack traces via `kill -USR1 <pid>`.
+# Safe in production (only triggers when signaled).
+import faulthandler
+import signal
+
+faulthandler.register(signal.SIGUSR1)
+
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from fastapi import FastAPI

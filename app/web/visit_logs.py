@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ipaddress
 import logging
+import threading
 from typing import Any
 
 from fastapi import FastAPI, Request, Response
@@ -65,48 +66,60 @@ def _safe_headers(headers: Any) -> dict[str, str]:
     return out
 
 
+def _persist_visit_log_async(payload: dict[str, Any]) -> None:
+    """Persist visit log in a background thread.
+
+    IMPORTANT: never block the request path for analytics/logging.
+    """
+
+    try:
+        db = SessionLocal()
+        try:
+            row = UserVisitLog(**payload)
+            db.add(row)
+            increment_activity_counter(db, event="visit")
+            db.commit()
+        finally:
+            db.close()
+    except Exception:
+        logger.exception("failed to write user visit log")
+
+
 def add_visit_logging(app: FastAPI) -> None:
     @app.middleware("http")
     async def _visit_logger(request: Request, call_next):
         if _should_skip(request):
             return await call_next(request)
 
-        response: Response | None = None
+        # Let the request proceed first.
+        response = await call_next(request)
+
         try:
-            response = await call_next(request)
-            return response
-        finally:
+            ip_str = _client_ip(request)
+            if not ip_str:
+                return response
+
             try:
-                ip_str = _client_ip(request)
-                if not ip_str:
-                    return
+                ipaddress.ip_address(ip_str)
+            except ValueError:
+                return response
 
-                # validate/normalize (Postgres INET will also validate)
-                try:
-                    ipaddress.ip_address(ip_str)
-                except ValueError:
-                    return
+            payload = {
+                "user_id": parse_session_user_id(request.cookies.get(AUTH_COOKIE_NAME)),
+                "ip_address": ip_str,
+                "session_id": request.cookies.get("session_id") or request.cookies.get("session"),
+                "action_type": "visit",
+                "user_agent": request.headers.get("user-agent"),
+                "browser_family": None,
+                "os_family": None,
+                "device_type": None,
+                "request_url": str(request.url),
+                "referer_url": request.headers.get("referer"),
+                "request_headers": _safe_headers(request.headers),
+            }
 
-                db = SessionLocal()
-                try:
-                    row = UserVisitLog(
-                        user_id=parse_session_user_id(request.cookies.get(AUTH_COOKIE_NAME)),
-                        ip_address=ip_str,
-                        session_id=request.cookies.get("session_id") or request.cookies.get("session"),
-                        action_type="visit",
-                        user_agent=request.headers.get("user-agent"),
-                        browser_family=None,
-                        os_family=None,
-                        device_type=None,
-                        request_url=str(request.url),
-                        referer_url=request.headers.get("referer"),
-                        request_headers=_safe_headers(request.headers),
-                    )
-                    db.add(row)
-                    increment_activity_counter(db, event="visit")
-                    db.commit()
-                finally:
-                    db.close()
-            except Exception:
-                # Never break user traffic for logging.
-                logger.exception("failed to write user visit log")
+            threading.Thread(target=_persist_visit_log_async, args=(payload,), daemon=True).start()
+        except Exception:
+            logger.exception("failed to schedule user visit log")
+
+        return response
