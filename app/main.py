@@ -38,12 +38,23 @@ def _run_job_with_new_session(job_name: str) -> None:
 def _build_scheduler() -> BackgroundScheduler:
     scheduler = BackgroundScheduler(timezone=ZoneInfo(settings.TZ))
 
-    # Daily intraday snapshot sync.
+    # Intraday snapshot refresh during trading hours (Mon-Fri, every 5 minutes, 09:00-17:00).
     scheduler.add_job(
         _run_job_with_new_session,
-        CronTrigger(hour=20, minute=0),
+        CronTrigger(day_of_week="mon-fri", hour="9-16", minute="*/5"),
         kwargs={"job_name": "fetch_intraday_snapshot"},
         id="fetch_intraday_snapshot_interval",
+        replace_existing=True,
+        coalesce=True,
+        max_instances=1,
+        misfire_grace_time=120,
+    )
+    # Include 17:00 (avoid scheduling 17:05/17:10/...)
+    scheduler.add_job(
+        _run_job_with_new_session,
+        CronTrigger(day_of_week="mon-fri", hour=17, minute=0),
+        kwargs={"job_name": "fetch_intraday_snapshot"},
+        id="fetch_intraday_snapshot_1700",
         replace_existing=True,
         coalesce=True,
         max_instances=1,
@@ -118,14 +129,24 @@ def _startup_scheduler() -> None:
     if not settings.SNAPSHOT_SCHEDULE_ENABLED:
         return
 
-    scheduler = BackgroundScheduler(timezone=settings.TZ)
+    scheduler = BackgroundScheduler(timezone=ZoneInfo(settings.TZ))
     scheduler.add_job(
         _run_scheduled_snapshot,
-        CronTrigger(hour=20, minute=0),
+        CronTrigger(day_of_week="mon-fri", hour="9-16", minute="*/5"),
         id="fetch_intraday_snapshot_interval",
         replace_existing=True,
         max_instances=1,
         coalesce=True,
+        misfire_grace_time=120,
+    )
+    scheduler.add_job(
+        _run_scheduled_snapshot,
+        CronTrigger(day_of_week="mon-fri", hour=17, minute=0),
+        id="fetch_intraday_snapshot_1700",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=120,
     )
     scheduler.start()
     app.state.scheduler = scheduler
