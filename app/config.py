@@ -13,6 +13,12 @@ class Settings(BaseSettings):
     TZ: str = "Asia/Shanghai"
     ENABLE_SCHEDULED_JOBS: bool = False
 
+    # Database pool tuning (avoid QueuePool exhaustion under traffic + scheduled jobs)
+    DB_POOL_SIZE: int = 20
+    DB_MAX_OVERFLOW: int = 40
+    DB_POOL_TIMEOUT: int = 30
+    DB_POOL_RECYCLE: int = 1800
+
     # If you expose behind reverse proxy at /market-turnover
     BASE_PATH: str = ""  # e.g. "/market-turnover"
 
