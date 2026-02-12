@@ -27,6 +27,7 @@ from app.db.models import (
 )
 from app.jobs.tasks import run_job
 from app.services.tencent_quote import fetch_quotes
+from app.services.trade_corridor import get_trade_corridor_highlights_mock
 from app.web.activity_counter import get_global_visited_count, increment_activity_counter
 from app.web.auth import (
     build_login_redirect,
@@ -602,6 +603,9 @@ def dashboard(
     except Exception:
         global_quotes = []
 
+    # Trade corridor highlights (POC: mock)
+    corridor = get_trade_corridor_highlights_mock()
+
     return templates.TemplateResponse(
         "dashboard.html",
         _template_context(
@@ -617,6 +621,7 @@ def dashboard(
             sse_ratio=sse_ratio,
             szse_ratio=szse_ratio,
             global_quotes=global_quotes,
+            corridor=corridor,
         ),
     )
 
