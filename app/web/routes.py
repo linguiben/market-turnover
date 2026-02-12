@@ -54,6 +54,7 @@ templates.env.globals["format_hsi"] = format_hsi_price_x100
 
 INDEX_CODES = ("HSI", "SSE", "SZSE")
 INDEX_FALLBACK_NAMES = {"HSI": "恒生指数", "SSE": "上证指数", "SZSE": "深证成指"}
+INDEX_FALLBACK_NAMES_EN = {"HSI": "Hang Seng Index", "SSE": "Shanghai Composite", "SZSE": "Shenzhen Component"}
 AVAILABLE_JOBS: tuple[dict, ...] = (
     {
         "name": "fetch_am",
@@ -364,20 +365,17 @@ def _append_auth_visit_log(db: Session, request: Request, *, user_id: int, actio
         db.rollback()
 
 
-@router.get("/", response_class=HTMLResponse)
-def dashboard(
+def _dashboard_impl(
     request: Request,
-    db: Session = Depends(get_db),
-    current_user: AppUser | None = Depends(get_current_user),
+    *,
+    db: Session,
+    current_user: AppUser | None,
+    lang: str,
 ):
     today = date.today()
     visited_count = get_global_visited_count(db)
 
-    market_indexes = (
-        db.query(MarketIndex)
-        .filter(MarketIndex.code.in_(INDEX_CODES))
-        .all()
-    )
+    market_indexes = db.query(MarketIndex).filter(MarketIndex.code.in_(INDEX_CODES)).all()
     index_by_code = {row.code.upper(): row for row in market_indexes}
 
     cards: list[dict] = []
@@ -486,7 +484,9 @@ def dashboard(
         # "latest price" on homepage: today's realtime snapshot first; fallback to history.
         full_last = snap_full.last if snap_full is not None else (full.last if full is not None else None)
         price_change_pct = (
-            snap_full.change_pct if snap_full is not None and snap_full.change_pct is not None else (full.change_pct if full is not None else None)
+            snap_full.change_pct
+            if snap_full is not None and snap_full.change_pct is not None
+            else (full.change_pct if full is not None else None)
         )
         updated_at = (
             snap_full.data_updated_at
@@ -562,10 +562,19 @@ def dashboard(
             peak_ratio = round(full_turnover / peak_turnover * 100)
         ratio_to_peak[code] = peak_ratio
 
+        if lang == "en":
+            name = None
+            if index_row is not None:
+                name = (index_row.name_en or "").strip() or None
+            if not name:
+                name = INDEX_FALLBACK_NAMES_EN.get(code, code)
+        else:
+            name = index_row.name_zh if index_row is not None else INDEX_FALLBACK_NAMES[code]
+
         cards.append(
             {
                 "code": code,
-                "name": index_row.name_zh if index_row is not None else INDEX_FALLBACK_NAMES[code],
+                "name": name,
                 "chart_id": f"{code.lower()}-chart",
                 "last_price": _fmt_price(full_last),
                 "change_pct": _fmt_pct(price_change_pct),
@@ -602,26 +611,36 @@ def dashboard(
     hsi_ratio = ratio_to_peak.get("HSI")
     sse_ratio = ratio_to_peak.get("SSE")
     szse_ratio = ratio_to_peak.get("SZSE")
-    insight_text = (
-        f"当前恒生指数全日成交量约为近期峰值的 {hsi_ratio}% ，"
-        f"上证指数约为 {sse_ratio if sse_ratio is not None else '--'}% ，"
-        f"深证成指约为 {szse_ratio if szse_ratio is not None else '--'}% 。"
-        "若指数点位走强且成交量继续放大，趋势延续概率更高；反之需关注量价背离。"
-        if hsi_ratio is not None
-        else "暂无足够历史数据生成量价分析，请先运行 backfill_tushare_index 或 fetch_tushare_index / fetch_full 同步数据。"
-    )
+
+    if lang == "en":
+        if hsi_ratio is not None:
+            insight_text = (
+                f"Today’s Hang Seng Index full-day turnover is about {hsi_ratio}% of its recent peak; "
+                f"Shanghai Composite is about {sse_ratio if sse_ratio is not None else '--'}%; "
+                f"Shenzhen Component is about {szse_ratio if szse_ratio is not None else '--'}%. "
+                "If the index level strengthens and turnover keeps expanding, the trend is more likely to continue; "
+                "otherwise watch for price-volume divergence."
+            )
+        else:
+            insight_text = (
+                "Not enough historical data to generate the analysis yet. "
+                "Please run backfill_tushare_index, or run fetch_tushare_index / fetch_full to sync data."
+            )
+    else:
+        insight_text = (
+            f"当前恒生指数全日成交量约为近期峰值的 {hsi_ratio}% ，"
+            f"上证指数约为 {sse_ratio if sse_ratio is not None else '--'}% ，"
+            f"深证成指约为 {szse_ratio if szse_ratio is not None else '--'}% 。"
+            "若指数点位走强且成交量继续放大，趋势延续概率更高；反之需关注量价背离。"
+            if hsi_ratio is not None
+            else "暂无足够历史数据生成量价分析，请先运行 backfill_tushare_index 或 fetch_tushare_index / fetch_full 同步数据。"
+        )
 
     # Global market quotes (free, no-auth) via Tencent quote endpoint
-    global_symbols = ["r_hkHSI", "usDJI", "usIXIC", "s_sh000001", "s_sz399001"]
     global_quotes = []
-
     cached = get_cache(db, key="homepage:global_quotes")
     if cached is not None and isinstance(cached.payload, dict) and cached.payload.get("items"):
         global_quotes = cached.payload.get("items") or []
-    else:
-        # IMPORTANT: do not fetch remote quotes on the request path.
-        # Some environments may have blocked/slow DNS, which would hang the homepage.
-        global_quotes = []
 
     # Trade corridor highlights (POC: mock)
     corridor = None
@@ -645,8 +664,9 @@ def dashboard(
         except Exception:
             corridor = None
 
+    template_name = "dashboard_en.html" if lang == "en" else "dashboard.html"
     return templates.TemplateResponse(
-        "dashboard.html",
+        template_name,
         _template_context(
             request,
             current_user=current_user,
@@ -663,6 +683,24 @@ def dashboard(
             corridor=corridor,
         ),
     )
+
+
+@router.get("/", response_class=HTMLResponse)
+def dashboard_en(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: AppUser | None = Depends(get_current_user),
+):
+    return _dashboard_impl(request, db=db, current_user=current_user, lang="en")
+
+
+@router.get("/cn", response_class=HTMLResponse)
+def dashboard_cn(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: AppUser | None = Depends(get_current_user),
+):
+    return _dashboard_impl(request, db=db, current_user=current_user, lang="zh")
 
 
 @router.get("/recent", response_class=HTMLResponse)

@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>股市成交量参考</title>
+  <title>Market Turnover Reference</title>
   <link rel="icon" href="{{ (request.scope.get('root_path') or '') }}/favicon.ico" />
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
@@ -21,16 +21,16 @@
     <header class="mb-8 flex flex-wrap justify-between items-center gap-3">
       <div>
         <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-emerald-400">
-          股市成交量参考
+          Market Turnover Reference
         </h1>
-        <p class="text-slate-400 text-sm mt-1" style="font-family: cursive;">$私人定制请勿轻信$</p>
+        <p class="text-slate-400 text-sm mt-1" style="font-family: cursive;">$Custom-only · do your own research$</p>
       </div>
       <div class="text-right text-xs text-slate-500 font-mono">
         Last Data Sync<br>{{ last_data_sync }}
       </div>
       <nav class="w-full text-right text-xs text-slate-400 space-x-3">
         <span class="text-slate-400">Visited: {{ visited_count }}</span>
-        <a class="hover:text-blue-300" href="{{ base }}/">EN</a>
+        <a class="hover:text-blue-300" href="{{ base }}/cn">中文</a>
         <a class="hover:text-blue-300" href="{{ base }}/jobs">Jobs</a>
       </nav>
     </header>
@@ -51,33 +51,33 @@
           </div>
         </div>
         <div class="mb-3 text-xs text-slate-400 flex justify-between">
-          <span>半日成交: {{ card.today_turnover_am }}</span>
-          <span>全日成交: {{ card.today_turnover_day }}</span>
+          <span>Half-day: {{ card.today_turnover_am }}</span>
+          <span>Full-day: {{ card.today_turnover_day }}</span>
         </div>
         <div id="{{ card.chart_id }}" class="w-full h-[360px]"></div>
-        <div class="mt-2 text-[10px] text-slate-500 text-right">更新时间: {{ card.updated_at }}</div>
+        <div class="mt-2 text-[10px] text-slate-500 text-right">Updated: {{ card.updated_at }}</div>
       </div>
       {% endfor %}
     </div>
 
     <div class="bg-[#1e273a] rounded-2xl p-6 border border-[#2d374d] mt-6">
       <h2 class="text-lg font-bold mb-4 flex items-center text-slate-200">
-        <span class="w-1.5 h-5 bg-blue-500 rounded-full mr-3"></span>智能行情分析 (Insights)
+        <span class="w-1.5 h-5 bg-blue-500 rounded-full mr-3"></span>Insights
       </h2>
       <div class="grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
         <p class="md:col-span-2 text-slate-400 leading-relaxed">{{ insight_text }}</p>
         <div class="flex gap-10 justify-end">
           <div class="text-center">
             <div class="text-2xl font-black text-blue-400">{{ hsi_ratio if hsi_ratio is not none else '--' }}%</div>
-            <div class="text-[10px] text-slate-500 tracking-tighter">HSI vs MAX</div>
+            <div class="text-[10px] text-slate-500 tracking-tighter">HSI vs PEAK</div>
           </div>
           <div class="text-center">
             <div class="text-2xl font-black text-emerald-400">{{ sse_ratio if sse_ratio is not none else '--' }}%</div>
-            <div class="text-[10px] text-slate-500 tracking-tighter">SSE vs MAX</div>
+            <div class="text-[10px] text-slate-500 tracking-tighter">SSE vs PEAK</div>
           </div>
           <div class="text-center">
             <div class="text-2xl font-black text-fuchsia-400">{{ szse_ratio if szse_ratio is not none else '--' }}%</div>
-            <div class="text-[10px] text-slate-500 tracking-tighter">SZSE vs MAX</div>
+            <div class="text-[10px] text-slate-500 tracking-tighter">SZSE vs PEAK</div>
           </div>
         </div>
       </div>
@@ -85,18 +85,18 @@
 
     <div class="bg-[#111827] rounded-2xl p-6 border border-[#243044] mt-6">
       <h2 class="text-lg font-bold mb-4 flex items-center text-slate-200">
-        <span class="w-1.5 h-5 bg-amber-400 rounded-full mr-3"></span>全球股市（免費：Tencent 行情）
+        <span class="w-1.5 h-5 bg-amber-400 rounded-full mr-3"></span>Global Markets (Free: Tencent quotes)
       </h2>
       {% if global_quotes and global_quotes|length > 0 %}
         <div class="overflow-x-auto">
           <table class="w-full text-sm">
             <thead class="text-slate-400">
               <tr class="text-left">
-                <th class="py-2 pr-4">市場</th>
-                <th class="py-2 pr-4">最新</th>
-                <th class="py-2 pr-4">變動</th>
-                <th class="py-2 pr-4">幅度</th>
-                <th class="py-2 pr-2">時間</th>
+                <th class="py-2 pr-4">Market</th>
+                <th class="py-2 pr-4">Last</th>
+                <th class="py-2 pr-4">Change</th>
+                <th class="py-2 pr-4">%</th>
+                <th class="py-2 pr-2">Time</th>
               </tr>
             </thead>
             <tbody>
@@ -113,38 +113,38 @@
           </table>
         </div>
       {% else %}
-        <p class="text-slate-500 text-sm">暫時攞唔到全球股市報價（稍後再試）。</p>
+        <p class="text-slate-500 text-sm">Global quotes are temporarily unavailable. Please try again later.</p>
       {% endif %}
     </div>
 
     <div class="bg-[#0b1220] rounded-2xl p-6 border border-[#243044] mt-6">
       <h2 class="text-lg font-bold mb-4 flex items-center text-slate-200">
-        <span class="w-1.5 h-5 bg-violet-400 rounded-full mr-3"></span>Most Active Trade Corridor（跨市場資金通道｜POC）
+        <span class="w-1.5 h-5 bg-violet-400 rounded-full mr-3"></span>Most Active Trade Corridor (Cross-market Flow · POC)
       </h2>
 
       {% if corridor %}
         <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div class="card rounded-2xl p-4">
-            <div class="text-xs text-slate-400">交易額最高</div>
+            <div class="text-xs text-slate-400">Highest Turnover</div>
             <div class="mt-1 text-slate-200 font-bold">{{ corridor.highest_turnover.name if corridor.highest_turnover else '--' }}</div>
             <div class="mt-2 text-sm text-slate-300">{{ format_yi(corridor.highest_turnover.turnover_hkd) if corridor.highest_turnover else '--' }}</div>
           </div>
           <div class="card rounded-2xl p-4">
-            <div class="text-xs text-slate-400">淨流入最大</div>
+            <div class="text-xs text-slate-400">Max Net Inflow</div>
             <div class="mt-1 text-slate-200 font-bold">{{ corridor.max_net_inflow.name if corridor.max_net_inflow else '--' }}</div>
             <div class="mt-2 text-sm font-mono {% if corridor.max_net_inflow and corridor.max_net_inflow.net_inflow_hkd and corridor.max_net_inflow.net_inflow_hkd >= 0 %}text-emerald-400{% else %}text-rose-400{% endif %}">
               {{ format_yi(corridor.max_net_inflow.net_inflow_hkd) if corridor.max_net_inflow else '--' }}
             </div>
           </div>
           <div class="card rounded-2xl p-4">
-            <div class="text-xs text-slate-400">淨流出最大</div>
+            <div class="text-xs text-slate-400">Max Net Outflow</div>
             <div class="mt-1 text-slate-200 font-bold">{{ corridor.max_net_outflow.name if corridor.max_net_outflow else '--' }}</div>
             <div class="mt-2 text-sm font-mono {% if corridor.max_net_outflow and corridor.max_net_outflow.net_inflow_hkd and corridor.max_net_outflow.net_inflow_hkd >= 0 %}text-emerald-400{% else %}text-rose-400{% endif %}">
               {{ format_yi(corridor.max_net_outflow.net_inflow_hkd) if corridor.max_net_outflow else '--' }}
             </div>
           </div>
           <div class="card rounded-2xl p-4">
-            <div class="text-xs text-slate-400">交易筆數最多</div>
+            <div class="text-xs text-slate-400">Most Trades</div>
             <div class="mt-1 text-slate-200 font-bold">{{ corridor.max_trades.name if corridor.max_trades else '--' }}</div>
             <div class="mt-2 text-sm text-slate-300 font-mono">{{ '{:,}'.format(corridor.max_trades.trades_count) if corridor.max_trades and corridor.max_trades.trades_count else '--' }}</div>
           </div>
@@ -154,7 +154,7 @@
           Source: {{ corridor.rows[0].source if corridor.rows and corridor.rows[0].source else 'N/A' }} ｜As of: {{ corridor.rows[0].asof if corridor.rows and corridor.rows[0].asof else '' }}
         </div>
       {% else %}
-        <p class="text-slate-500 text-sm">暫時冇 trade corridor 數據（POC）。</p>
+        <p class="text-slate-500 text-sm">No trade corridor data available yet (POC).</p>
       {% endif %}
     </div>
 
@@ -168,14 +168,14 @@
       return {
         tooltip: { trigger: "axis", axisPointer: { type: "shadow" } },
         legend: {
-          data: ["当日成交", "昨日成交", "5日均值", "10日均值"],
+          data: ["Today", "Yesterday", "5D Avg", "10D Avg"],
           bottom: "0",
           textStyle: { color: "#94a3b8" }
         },
         grid: { top: "40%", left: "8%", right: "10%", bottom: "15%", containLabel: true },
         xAxis: {
           type: "category",
-          data: ["半日成交量(B)", "全日成交量(B)"],
+          data: ["Half-day (B)", "Full-day (B)"],
           axisLine: { lineStyle: { color: "#334155" } },
           axisLabel: { color: "#94a3b8", fontSize: 10 }
         },
@@ -220,7 +220,7 @@
             data: [{ value: data.todayVolDay }]
           },
           {
-            name: "当日成交",
+            name: "Today",
             type: "bar",
             barWidth: 14,
             data: [data.todayVolAM, data.todayVolDay],
@@ -230,27 +230,27 @@
               label: { position: "end", color: "#ef4444", fontSize: 10, formatter: "{b}" },
               lineStyle: { type: "dashed", color: "#ef4444", opacity: 0.6 },
               data: [
-                { yAxis: data.maxVolAM, name: "半日峰: " + data.maxVolAM.toFixed(2) + " B" },
-                { yAxis: data.maxVolDay, name: "全日峰: " + data.maxVolDay.toFixed(2) + " B" }
+                { yAxis: data.maxVolAM, name: "Half-day peak: " + data.maxVolAM.toFixed(2) + " B" },
+                { yAxis: data.maxVolDay, name: "Full-day peak: " + data.maxVolDay.toFixed(2) + " B" }
               ]
             }
           },
           {
-            name: "昨日成交",
+            name: "Yesterday",
             type: "bar",
             barWidth: 14,
             data: [data.yesterdayVolAM, data.yesterdayVolDay],
             itemStyle: { color: "#475569", borderRadius: [2, 2, 0, 0] }
           },
           {
-            name: "5日均值",
+            name: "5D Avg",
             type: "bar",
             barWidth: 14,
             data: [data.avgVolAM, data.avgVolDay],
             itemStyle: { color: "#334155", borderRadius: [2, 2, 0, 0] }
           },
           {
-            name: "10日均值",
+            name: "10D Avg",
             type: "bar",
             barWidth: 14,
             data: [data.tenAvgVolAM, data.tenAvgVolDay],
