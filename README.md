@@ -56,23 +56,21 @@ market_index
 ```
 
 ## Scheduled jobs switch
-- `ENABLE_SCHEDULED_JOBS=false` (default): do not start the cron scheduler in `lifespan`.
+- `ENABLE_SCHEDULED_JOBS=false` (default): do not start the APScheduler cron scheduler.
 - `ENABLE_SCHEDULED_JOBS=true`: start cron scheduler on app startup.
-  - `fetch_intraday_snapshot`: daily 20:00
+  - `fetch_intraday_snapshot`: Mon-Fri, 09:00-17:00, every 5 minutes (includes 17:00)
   - `fetch_am`: Mon-Fri, 11:35
   - `fetch_full`: Mon-Fri, 16:10
-- `SNAPSHOT_SCHEDULE_ENABLED=true` (default in code): start an additional startup scheduler for `fetch_intraday_snapshot`.
-  - trigger: daily 20:00
-  - If both switches are enabled, `fetch_intraday_snapshot` may be triggered by both schedulers at the same time.
+  - `fetch_tushare_index`: daily 20:00
 
 ## 作业与定时任务总览
 
 | 作业名 (`job_name`) | 简介 | 运行频率 | 控制方式 | 备注/参数 |
 | --- | --- | --- | --- | --- |
-| `fetch_intraday_snapshot` | 抓取 HSI/SSE/SZSE 盘中快照，写入 `index_realtime_snapshot` | 每日 20:00（定时）；也可手动触发 | 定时 + 手动（Jobs 页 / `POST /api/jobs/run`） | 可传 `codes`、`force_source` |
+| `fetch_intraday_snapshot` | 抓取 HSI/SSE/SZSE 盘中快照，写入 `index_realtime_snapshot` | 工作日 09:00-17:00，每5分钟（含 17:00） | 定时 + 手动（Jobs 页 / `POST /api/jobs/run`） | 可传 `codes`、`force_source` |
 | `fetch_am` | 午盘成交与快照，同步最新 Tushare 日线 | 工作日 11:35（cron） | 定时 + 手动（Jobs 页 / API） | 无必填参数 |
 | `fetch_full` | 全日成交与快照，同步最新 Tushare 日线 | 工作日 16:10（cron） | 定时 + 手动（Jobs 页 / API） | 无必填参数 |
-| `fetch_tushare_index` | 同步 HSI/SSE/SZSE 最新日线 | 无独立 cron；会在 `fetch_am`/`fetch_full` 执行时一并同步，也可手动触发 | 定时（间接） + 手动（Jobs 页 / API） | 无必填参数 |
+| `fetch_tushare_index` | 同步 HSI/SSE/SZSE 最新日线 | 每日 20:00（cron） | 定时 + 手动（Jobs 页 / API） | 无必填参数 |
 | `fetch_intraday_bars_cn_5m` | 保存 A 股 5 分钟K线到 `index_intraday_bar` | 无自动调度（按需执行） | 手动（Jobs 页 / API） | 可传 `lookback_days` |
 | `backfill_tushare_index` | 回填指数历史日线（当前代码为近 365 天） | 无自动调度（按需执行） | 手动（Jobs 页 / API） | 无必填参数 |
 | `backfill_cn_halfday` | 用 Eastmoney 回填 A 股半日/全日成交 | 无自动调度（按需执行） | 手动（Jobs 页 / API） | 无必填参数 |

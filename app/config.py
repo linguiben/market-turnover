@@ -35,8 +35,7 @@ class Settings(BaseSettings):
     SOURCE_PRIORITY: str = "TUSHARE,HKEX,EASTMONEY,TENCENT,AASTOCKS"
 
     # Scheduler
-    SNAPSHOT_SCHEDULE_ENABLED: bool = True
-    SNAPSHOT_INTERVAL_SECONDS: int = 300
+    # ENABLE_SCHEDULED_JOBS controls whether APScheduler cron jobs start in FastAPI lifespan.
 
     # Tencent
     TENCENT_API_KEY: str | None = None

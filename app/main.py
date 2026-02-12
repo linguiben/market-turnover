@@ -128,47 +128,8 @@ if base_path:
 app.mount(f"{base_path}/test", StaticFiles(directory="test"), name="test")
 
 
-def _run_scheduled_snapshot() -> None:
-    db = SessionLocal()
-    try:
-        run_job(db, "fetch_intraday_snapshot")
-    finally:
-        db.close()
-
-
-@app.on_event("startup")
-def _startup_scheduler() -> None:
-    if not settings.SNAPSHOT_SCHEDULE_ENABLED:
-        return
-
-    scheduler = BackgroundScheduler(timezone=ZoneInfo(settings.TZ))
-    scheduler.add_job(
-        _run_scheduled_snapshot,
-        CronTrigger(day_of_week="mon-fri", hour="9-16", minute="*/5"),
-        id="fetch_intraday_snapshot_interval",
-        replace_existing=True,
-        max_instances=1,
-        coalesce=True,
-        misfire_grace_time=120,
-    )
-    scheduler.add_job(
-        _run_scheduled_snapshot,
-        CronTrigger(day_of_week="mon-fri", hour=17, minute=0),
-        id="fetch_intraday_snapshot_1700",
-        replace_existing=True,
-        max_instances=1,
-        coalesce=True,
-        misfire_grace_time=120,
-    )
-    scheduler.start()
-    app.state.scheduler = scheduler
-
-
-@app.on_event("shutdown")
-def _shutdown_scheduler() -> None:
-    scheduler = getattr(app.state, "scheduler", None)
-    if scheduler is not None:
-        scheduler.shutdown(wait=False)
+# NOTE: we intentionally use a single scheduler (lifespan + ENABLE_SCHEDULED_JOBS)
+# to avoid double-triggering jobs.
 
 
 @app.get("/healthz")
