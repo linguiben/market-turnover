@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import ipaddress
 import logging
-import threading
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from fastapi import FastAPI, Request, Response
@@ -13,6 +13,9 @@ from app.web.activity_counter import increment_activity_counter
 from app.web.auth import AUTH_COOKIE_NAME, parse_session_user_id
 
 logger = logging.getLogger(__name__)
+
+# Limit background analytics concurrency to avoid exhausting DB connections.
+_visit_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="visitlog")
 
 
 _EXCLUDE_PATH_PREFIXES = (
@@ -118,7 +121,11 @@ def add_visit_logging(app: FastAPI) -> None:
                 "request_headers": _safe_headers(request.headers),
             }
 
-            threading.Thread(target=_persist_visit_log_async, args=(payload,), daemon=True).start()
+            try:
+                _visit_executor.submit(_persist_visit_log_async, payload)
+            except Exception:
+                # If executor is shutdown or overloaded, skip analytics.
+                logger.exception("failed to submit user visit log")
         except Exception:
             logger.exception("failed to schedule user visit log")
 
