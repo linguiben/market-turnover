@@ -28,6 +28,7 @@ from app.db.models import (
 from app.jobs.tasks import run_job
 from app.services.tencent_quote import fetch_quotes
 from app.services.trade_corridor import get_trade_corridor_highlights_mock
+from app.services.app_cache import get_cache, upsert_cache
 from app.web.activity_counter import get_global_visited_count, increment_activity_counter
 from app.web.auth import (
     build_login_redirect,
@@ -85,6 +86,20 @@ AVAILABLE_JOBS: tuple[dict, ...] = (
             {"name": "codes", "label": "Index codes (comma)", "type": "text", "placeholder": "HSI,SSE,SZSE"},
             {"name": "force_source", "label": "Force source (optional)", "type": "text", "placeholder": "AASTOCKS/EASTMONEY/TUSHARE"},
         ],
+    },
+    {
+        "name": "refresh_home_global_quotes",
+        "label": "刷新主页-全球股市(Tencent)",
+        "description": "刷新主页『全球股市（免費：Tencent 行情）』缓存数据。",
+        "schedule": "每5分钟",
+        "targets": ["app_cache"],
+    },
+    {
+        "name": "refresh_home_trade_corridor",
+        "label": "刷新主页-Trade Corridor(POC)",
+        "description": "刷新主页『Most Active Trade Corridor（跨市場資金通道｜POC）』缓存数据（当前为MOCK）。",
+        "schedule": "每5分钟",
+        "targets": ["app_cache"],
     },
     {
         "name": "fetch_intraday_bars_cn_5m",
@@ -597,14 +612,41 @@ def dashboard(
     )
 
     # Global market quotes (free, no-auth) via Tencent quote endpoint
+    global_symbols = ["r_hkHSI", "usDJI", "usIXIC", "s_sh000001", "s_sz399001"]
     global_quotes = []
-    try:
-        global_quotes = fetch_quotes(["r_hkHSI", "usDJI", "usIXIC", "s_sh000001", "s_sz399001"]) 
-    except Exception:
-        global_quotes = []
+
+    cached = get_cache(db, key="homepage:global_quotes")
+    if cached is not None and isinstance(cached.payload, dict) and cached.payload.get("items"):
+        global_quotes = cached.payload.get("items") or []
+    else:
+        try:
+            quotes = fetch_quotes(global_symbols)
+            global_quotes = [q.__dict__ for q in quotes]
+            upsert_cache(db, key="homepage:global_quotes", payload={"symbols": global_symbols, "items": global_quotes})
+        except Exception:
+            global_quotes = []
 
     # Trade corridor highlights (POC: mock)
-    corridor = get_trade_corridor_highlights_mock()
+    corridor = None
+    cached_c = get_cache(db, key="homepage:trade_corridor")
+    if cached_c is not None and isinstance(cached_c.payload, dict) and cached_c.payload.get("rows"):
+        corridor = cached_c.payload
+    else:
+        try:
+            c = get_trade_corridor_highlights_mock()
+            corridor = c.__dict__
+            corridor["rows"] = [r.__dict__ for r in c.rows]
+            if c.highest_turnover is not None:
+                corridor["highest_turnover"] = c.highest_turnover.__dict__
+            if c.max_net_inflow is not None:
+                corridor["max_net_inflow"] = c.max_net_inflow.__dict__
+            if c.max_net_outflow is not None:
+                corridor["max_net_outflow"] = c.max_net_outflow.__dict__
+            if c.max_trades is not None:
+                corridor["max_trades"] = c.max_trades.__dict__
+            upsert_cache(db, key="homepage:trade_corridor", payload=corridor)
+        except Exception:
+            corridor = None
 
     return templates.TemplateResponse(
         "dashboard.html",

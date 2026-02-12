@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import traceback
+from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -26,6 +27,9 @@ from app.sources.tencent_index import fetch_index_daily_history as fetch_tencent
 from app.sources.eastmoney_index import fetch_minute_kline, aggregate_halfday_and_fullday_amount
 from app.sources.eastmoney_intraday import fetch_intraday_snapshot as fetch_eastmoney_intraday_snapshot
 from app.sources.tushare_kline import fetch_index_kline
+from app.services.tencent_quote import fetch_quotes
+from app.services.trade_corridor import get_trade_corridor_highlights_mock
+from app.services.app_cache import upsert_cache
 
 
 def _persist_tushare_rows(
@@ -583,6 +587,28 @@ def _backfill_intraday_kline_source(db: Session, *, lookback_days_5m: int = 90, 
     }
 
 
+def _refresh_home_global_quotes(db: Session) -> tuple[str, dict]:
+    symbols = ["r_hkHSI", "usDJI", "usIXIC", "s_sh000001", "s_sz399001"]
+    try:
+        quotes = fetch_quotes(symbols, timeout_seconds=10)
+        payload = {"symbols": symbols, "items": [asdict(q) for q in quotes]}
+        upsert_cache(db, key="homepage:global_quotes", payload=payload)
+        return "success", {"rows": len(quotes), "symbols": symbols}
+    except Exception as e:
+        # keep last cache; report partial
+        return "partial", {"symbols": symbols, "error": str(e)}
+
+
+def _refresh_home_trade_corridor(db: Session) -> tuple[str, dict]:
+    try:
+        highlights = get_trade_corridor_highlights_mock()
+        payload = asdict(highlights)
+        upsert_cache(db, key="homepage:trade_corridor", payload=payload)
+        return "success", {"rows": len(highlights.rows) if highlights.rows else 0, "source": "MOCK"}
+    except Exception as e:
+        return "partial", {"error": str(e)}
+
+
 def run_job(db: Session, job_name: str, params: dict | None = None) -> JobRun:
     run = JobRun(job_name=job_name, status="running", summary={"params": params} if params else None)
     db.add(run)
@@ -590,7 +616,13 @@ def run_job(db: Session, job_name: str, params: dict | None = None) -> JobRun:
     db.refresh(run)
 
     try:
-        if job_name == "fetch_am":
+        if job_name == "refresh_home_global_quotes":
+            status, summary = _refresh_home_global_quotes(db)
+
+        elif job_name == "refresh_home_trade_corridor":
+            status, summary = _refresh_home_trade_corridor(db)
+
+        elif job_name == "fetch_am":
             # Use HK timezone trading date when possible; fallback to local date.
             today = date.today()
 

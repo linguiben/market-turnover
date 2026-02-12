@@ -336,6 +336,18 @@ class JobRun(Base):
     error = Column(Text, nullable=True)
 
 
+class AppCache(Base):
+    __tablename__ = "app_cache"
+
+    # Simple key-value cache persisted in DB.
+    # Used for homepage widgets that refresh periodically.
+
+    key = Column(String(128), primary_key=True)
+    payload = Column(JSONB, nullable=True)
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
 class AppUser(Base):
     __tablename__ = "app_user"
     __table_args__ = (

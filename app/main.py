@@ -92,6 +92,29 @@ def _build_scheduler() -> BackgroundScheduler:
         coalesce=True,
         max_instances=1,
     )
+
+    # Homepage widgets refresh (every 5 minutes).
+    scheduler.add_job(
+        _run_job_with_new_session,
+        CronTrigger(minute="*/5"),
+        kwargs={"job_name": "refresh_home_global_quotes"},
+        id="refresh_home_global_quotes_cron",
+        replace_existing=True,
+        coalesce=True,
+        max_instances=1,
+        misfire_grace_time=120,
+    )
+    scheduler.add_job(
+        _run_job_with_new_session,
+        CronTrigger(minute="*/5"),
+        kwargs={"job_name": "refresh_home_trade_corridor"},
+        id="refresh_home_trade_corridor_cron",
+        replace_existing=True,
+        coalesce=True,
+        max_instances=1,
+        misfire_grace_time=120,
+    )
+
     return scheduler
 
 
