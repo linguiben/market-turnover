@@ -26,6 +26,7 @@ from app.db.models import (
     UserVisitLog,
 )
 from app.jobs.tasks import run_job
+from app.services.tencent_quote import fetch_quotes
 from app.web.activity_counter import get_global_visited_count, increment_activity_counter
 from app.web.auth import (
     build_login_redirect,
@@ -594,6 +595,13 @@ def dashboard(
         else "暂无足够历史数据生成量价分析，请先运行 backfill_tushare_index 或 fetch_tushare_index / fetch_full 同步数据。"
     )
 
+    # Global market quotes (free, no-auth) via Tencent quote endpoint
+    global_quotes = []
+    try:
+        global_quotes = fetch_quotes(["r_hkHSI", "usDJI", "usIXIC", "s_sh000001", "s_sz399001"]) 
+    except Exception:
+        global_quotes = []
+
     return templates.TemplateResponse(
         "dashboard.html",
         _template_context(
@@ -608,6 +616,7 @@ def dashboard(
             hsi_ratio=hsi_ratio,
             sse_ratio=sse_ratio,
             szse_ratio=szse_ratio,
+            global_quotes=global_quotes,
         ),
     )
 
