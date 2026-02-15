@@ -19,6 +19,8 @@ INDEX_META = {
     "HSI": {"name_zh": "恒生指数", "name_en": "Hang Seng Index", "market": "HK", "exchange": "HKEX", "currency": "HKD", "timezone": "Asia/Hong_Kong", "display_order": 10},
     "SSE": {"name_zh": "上证指数", "name_en": "SSE Composite Index", "market": "CN", "exchange": "SSE", "currency": "CNY", "timezone": "Asia/Shanghai", "display_order": 20},
     "SZSE": {"name_zh": "深证成指", "name_en": "SZSE Component Index", "market": "CN", "exchange": "SZSE", "currency": "CNY", "timezone": "Asia/Shanghai", "display_order": 30},
+    "DJI": {"name_zh": "道琼斯指数", "name_en": "Dow Jones", "market": "US", "exchange": "NYSE", "currency": "USD", "timezone": "America/New_York", "display_order": 40},
+    "IXIC": {"name_zh": "纳斯达克", "name_en": "NASDAQ", "market": "US", "exchange": "NASDAQ", "currency": "USD", "timezone": "America/New_York", "display_order": 50},
 }
 
 

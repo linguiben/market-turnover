@@ -39,3 +39,42 @@
   WHERE tf.session = 'FULL'::sessiontype
     AND tf.turnover_hkd IS NOT NULL;
 ```
+```
+
+# HSI
+## 1.“全日成交”
+market_index 
+-> index_realtime_snapshot # todo: 检查哪个job写入
+-> index_quote_history # todo: 检查哪个job写入
+-> turnover_fact (HSI专属) # todo: 检查哪个job写入
+
+## 2.“当日成交” todo: 1和2的逻辑应该保持一致 
+-> index_realtime_snapshot (session=AM 且 data_updated_at<=12:30)
+-> index_quote_history
+
+## 3.“历史均值
+-> index_quote_history.turnover_amount session='AM'/'PM'
+-> turnover_fact.turnover_hkd session='AM'/'FULL'
+
+#  4.“价格
+-> index_realtime_snapshot
+-> index_quote_history
+-> hsi_quote_fact (HSI专属)
+
+---
+
+# SSE, SZSE
+## 1) “全日成交”
+-> index_realtime_snapshot session=FULL
+-> # todo: 不拿历史?
+
+## 2) 当日成交（图里的“当日成交”两根柱）
+-> index_realtime_snapshot session=AM # todo: 只拿AM?
+-> index_quote_history session=AM
+
+## 3) “历史均值”
+-> index_quote_history session='AM'/'FULL'
+
+## 4) “价格”
+-> index_realtime_snapshot.last -> index_quote_history.last
+```

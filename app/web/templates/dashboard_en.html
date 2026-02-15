@@ -29,7 +29,7 @@
         Last Data Sync<br>{{ last_data_sync }}
       </div>
       <nav class="w-full text-right text-xs text-slate-400 space-x-3">
-        <span class="text-slate-400">Visited: {{ visited_count }}</span>
+        <span class="text-slate-400">Visitors: {{ visited_count }}</span>
         <a class="hover:text-blue-300" href="{{ base }}/cn">中文</a>
         <a class="hover:text-blue-300" href="{{ base }}/jobs">Jobs</a>
       </nav>
@@ -85,7 +85,7 @@
 
     <div class="bg-[#111827] rounded-2xl p-6 border border-[#243044] mt-6">
       <h2 class="text-lg font-bold mb-4 flex items-center text-slate-200">
-        <span class="w-1.5 h-5 bg-amber-400 rounded-full mr-3"></span>Global Markets (Free: Tencent quotes)
+        <span class="w-1.5 h-5 bg-amber-400 rounded-full mr-3"></span>Global Markets
       </h2>
       {% if global_quotes and global_quotes|length > 0 %}
         <div class="overflow-x-auto">
@@ -172,7 +172,7 @@
           bottom: "0",
           textStyle: { color: "#94a3b8" }
         },
-        grid: { top: "40%", left: "8%", right: "10%", bottom: "15%", containLabel: true },
+        grid: { top: "40%", left: "8%", right: "12%", bottom: "15%", containLabel: true },
         xAxis: {
           type: "category",
           data: ["Half-day (B)", "Full-day (B)"],
