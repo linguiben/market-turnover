@@ -3,6 +3,7 @@ from __future__ import annotations
 import traceback
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
@@ -863,12 +864,12 @@ def run_job(db: Session, job_name: str, params: dict | None = None) -> JobRun:
 
         elif job_name == "fetch_intraday_snapshot":
 
-            # Intraday snapshot for indices (default: HSI,SSE,SZSE)
+            # Intraday snapshot for indices (default: HSI,SSE,SZSE,DJI,IXIC)
             index_map = settings.tushare_index_map()
             written = 0
             errors: dict[str, str] = {}
 
-            codes = ["HSI", "SSE", "SZSE"]
+            codes = ["HSI", "SSE", "SZSE", "DJI", "IXIC"]
             if params and params.get("codes"):
                 codes = [c.strip().upper() for c in str(params.get("codes")).split(",") if c.strip()]
 
@@ -982,6 +983,50 @@ def run_job(db: Session, job_name: str, params: dict | None = None) -> JobRun:
                         written += 1
                 except Exception as e:
                     errors[code] = str(e)
+
+            # 3) DJI/IXIC from Tencent quotes
+            us_codes = [c for c in ("DJI", "IXIC") if c in codes]
+            if us_codes:
+                try:
+                    # Mapping for Tencent Quote symbols
+                    us_symbol_map = {"DJI": "usDJI", "IXIC": "usIXIC"}
+                    fetch_syms = [us_symbol_map[c] for c in us_codes]
+                    quotes = fetch_quotes(fetch_syms)
+                    quote_by_code = {q.symbol.replace("us", ""): q for q in quotes}
+
+                    for code in us_codes:
+                        q = quote_by_code.get(code)
+                        if not q:
+                            continue
+                        
+                        index_row = ensure_market_index(db, code)
+                        asof_dt = datetime.now(timezone.utc)
+                        if q.asof:
+                            try:
+                                # US asof format: 2024-05-10 16:00:00 (EST/EDT)
+                                # For simplicity, parse and use current date if needed
+                                asof_dt = datetime.strptime(q.asof, "%Y-%m-%d %H:%M:%S").replace(tzinfo=ZoneInfo("America/New_York"))
+                            except Exception:
+                                pass
+
+                        upsert_realtime_snapshot(
+                            db,
+                            index_id=index_row.id,
+                            trade_date=asof_dt.date(),
+                            session=SessionType.FULL,
+                            last=int(round(q.last * 100)),
+                            change_points=int(round(q.change * 100)),
+                            change_pct=int(round(q.pct * 100)),
+                            turnover_amount=None,  # Tencent quote might not have accurate US turnover in simple format
+                            turnover_currency="USD",
+                            data_updated_at=asof_dt,
+                            is_closed=False,
+                            source="TENCENT",
+                            payload={"raw": vars(q), "symbol": us_symbol_map[code]},
+                        )
+                        written += 1
+                except Exception as e:
+                    errors["US_INDICES"] = str(e)
 
             status = "success" if not errors else ("partial" if written else "failed")
             summary = {"written": written, "errors": errors, "codes": codes, "force_source": force_source or None}

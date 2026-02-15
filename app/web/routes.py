@@ -636,11 +636,38 @@ def _dashboard_impl(
             else "暂无足够历史数据生成量价分析，请先运行 backfill_tushare_index 或 fetch_tushare_index / fetch_full 同步数据。"
         )
 
-    # Global market quotes (free, no-auth) via Tencent quote endpoint
+    # Global market quotes from database (consistent with top cards)
     global_quotes = []
-    cached = get_cache(db, key="homepage:global_quotes")
-    if cached is not None and isinstance(cached.payload, dict) and cached.payload.get("items"):
-        global_quotes = cached.payload.get("items") or []
+    try:
+        active_indices = (
+            db.query(MarketIndex)
+            .filter(MarketIndex.is_active.is_(True))
+            .order_by(MarketIndex.display_order.asc())
+            .all()
+        )
+        for idx in active_indices:
+            snap = (
+                db.query(IndexRealtimeSnapshot)
+                .filter(IndexRealtimeSnapshot.index_id == idx.id)
+                .filter(IndexRealtimeSnapshot.session == SessionType.FULL)
+                .order_by(IndexRealtimeSnapshot.id.desc())
+                .first()
+            )
+            if snap:
+                # Use name_en if lang=en (assuming lang var is available from context)
+                idx_name = idx.name_zh
+                if "lang" in locals() and lang == "en" and idx.name_en:
+                    idx_name = idx.name_en
+
+                global_quotes.append({
+                    "name": idx_name,
+                    "last": snap.last / 100.0,
+                    "change": snap.change_points / 100.0 if snap.change_points is not None else 0.0,
+                    "pct": snap.change_pct / 100.0 if snap.change_pct is not None else 0.0,
+                    "asof": _fmt_sync_time(snap.data_updated_at),
+                })
+    except Exception:
+        global_quotes = []
 
     # Trade corridor highlights (POC: mock)
     corridor = None
