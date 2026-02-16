@@ -24,18 +24,16 @@ _EXCLUDE_PATH_PREFIXES = (
     "/openapi.json",
     "/redoc",
     "/test/",
+    "/favicon.ico",
+    "/static/",
 )
 
 
 def _should_skip(request: Request) -> bool:
     path = request.url.path or ""
     for prefix in _EXCLUDE_PATH_PREFIXES:
-        if prefix.endswith("/"):
-            if path.startswith(prefix):
-                return True
-        else:
-            if path == prefix or path.startswith(prefix + "/"):
-                return True
+        if path.startswith(prefix):
+            return True
     return False
 
 
@@ -95,53 +93,44 @@ def add_visit_logging(app: FastAPI) -> None:
         if _should_skip(request):
             return await call_next(request)
 
-        # Let the request proceed first.
+        # Check for deduplication: cookie or refresh param
+        is_refresh = request.query_params.get("refresh") == "1"
+        has_cookie = request.cookies.get("v_tracked") == "1"
+        should_increment = not (is_refresh or has_cookie)
+
+        # Let the request proceed
         response: Response = await call_next(request)
 
         try:
             ip_str = _client_ip(request)
-            if not ip_str:
-                return response
-
-            try:
-                ipaddress.ip_address(ip_str)
-            except ValueError:
-                return response
-
-            # Check for deduplication: cookie or refresh param
-            is_refresh = request.query_params.get("refresh") == "1"
-            has_cookie = request.cookies.get("v_tracked") == "1"
-            should_increment = not (is_refresh or has_cookie)
-
-            payload = {
-                "user_id": parse_session_user_id(request.cookies.get(AUTH_COOKIE_NAME)),
-                "ip_address": ip_str,
-                "session_id": request.cookies.get("session_id") or request.cookies.get("session"),
-                "action_type": "visit",
-                "user_agent": request.headers.get("user-agent"),
-                "browser_family": None,
-                "os_family": None,
-                "device_type": None,
-                "request_url": str(request.url),
-                "referer_url": request.headers.get("referer"),
-                "request_headers": _safe_headers(request.headers),
-            }
-
-            try:
+            if ip_str:
+                payload = {
+                    "user_id": parse_session_user_id(request.cookies.get(AUTH_COOKIE_NAME)),
+                    "ip_address": ip_str,
+                    "session_id": request.cookies.get("session_id") or request.cookies.get("session"),
+                    "action_type": "visit",
+                    "user_agent": request.headers.get("user-agent"),
+                    "browser_family": None,
+                    "os_family": None,
+                    "device_type": None,
+                    "request_url": str(request.url),
+                    "referer_url": request.headers.get("referer"),
+                    "request_headers": _safe_headers(request.headers),
+                }
                 _visit_executor.submit(_persist_visit_log_async, payload, should_increment)
-                if should_increment:
-                    # Mark as tracked for the next 30 minutes to deduplicate
-                    response.set_cookie(
-                        key="v_tracked",
-                        value="1",
-                        max_age=1800,
-                        httonly=True,
-                        samesite="lax",
-                    )
-            except Exception:
-                # If executor is shutdown or overloaded, skip analytics.
-                logger.exception("failed to submit user visit log")
+
+            # Always set/refresh the cookie if we want to track this user
+            # but only if it's missing or we just incremented.
+            if should_increment:
+                response.set_cookie(
+                    key="v_tracked",
+                    value="1",
+                    max_age=1800,
+                    path="/",
+                    httponly=True,
+                    samesite="lax",
+                )
         except Exception:
-            logger.exception("failed to schedule user visit log")
+            logger.exception("failed to process user visit log")
 
         return response

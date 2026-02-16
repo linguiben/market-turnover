@@ -978,10 +978,25 @@ def login_submit(
     db.commit()
 
     _append_auth_visit_log(db, request, user_id=int(user.id), action_type="login")
-    increment_activity_counter(db, event="login")
+    
+    # Deduplicate login count using the same cookie logic
+    has_tracked_cookie = request.cookies.get("v_tracked") == "1"
+    if not has_tracked_cookie:
+        increment_activity_counter(db, event="login")
+    
     db.commit()
     response = RedirectResponse(url=safe_next, status_code=303)
     set_login_cookie(response, int(user.id))
+    
+    # Also set v_tracked on login redirect to ensure immediate deduplication
+    response.set_cookie(
+        key="v_tracked",
+        value="1",
+        max_age=1800,
+        path="/",
+        httponly=True,
+        samesite="lax",
+    )
     return response
 
 
