@@ -268,6 +268,13 @@
       chart.setOption(getOption(item.data));
       window.addEventListener("resize", () => chart.resize());
     });
+
+    // Auto-refresh every 60 seconds
+    setTimeout(() => {
+      const url = new URL(window.location.href);
+      url.searchParams.set('refresh', '1');
+      window.location.href = url.toString();
+    }, 60000);
   </script>
 </body>
 </html>

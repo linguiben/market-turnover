@@ -69,7 +69,7 @@ def _safe_headers(headers: Any) -> dict[str, str]:
     return out
 
 
-def _persist_visit_log_async(payload: dict[str, Any]) -> None:
+def _persist_visit_log_async(payload: dict[str, Any], should_increment: bool = True) -> None:
     """Persist visit log in a background thread.
 
     IMPORTANT: never block the request path for analytics/logging.
@@ -80,7 +80,8 @@ def _persist_visit_log_async(payload: dict[str, Any]) -> None:
         try:
             row = UserVisitLog(**payload)
             db.add(row)
-            increment_activity_counter(db, event="visit")
+            if should_increment:
+                increment_activity_counter(db, event="visit")
             db.commit()
         finally:
             db.close()
@@ -95,7 +96,7 @@ def add_visit_logging(app: FastAPI) -> None:
             return await call_next(request)
 
         # Let the request proceed first.
-        response = await call_next(request)
+        response: Response = await call_next(request)
 
         try:
             ip_str = _client_ip(request)
@@ -106,6 +107,11 @@ def add_visit_logging(app: FastAPI) -> None:
                 ipaddress.ip_address(ip_str)
             except ValueError:
                 return response
+
+            # Check for deduplication: cookie or refresh param
+            is_refresh = request.query_params.get("refresh") == "1"
+            has_cookie = request.cookies.get("v_tracked") == "1"
+            should_increment = not (is_refresh or has_cookie)
 
             payload = {
                 "user_id": parse_session_user_id(request.cookies.get(AUTH_COOKIE_NAME)),
@@ -122,7 +128,16 @@ def add_visit_logging(app: FastAPI) -> None:
             }
 
             try:
-                _visit_executor.submit(_persist_visit_log_async, payload)
+                _visit_executor.submit(_persist_visit_log_async, payload, should_increment)
+                if should_increment:
+                    # Mark as tracked for the next 30 minutes to deduplicate
+                    response.set_cookie(
+                        key="v_tracked",
+                        value="1",
+                        max_age=1800,
+                        httonly=True,
+                        samesite="lax",
+                    )
             except Exception:
                 # If executor is shutdown or overloaded, skip analytics.
                 logger.exception("failed to submit user visit log")
