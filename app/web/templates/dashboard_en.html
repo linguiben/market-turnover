@@ -23,7 +23,7 @@
         <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-emerald-400">
           Market Turnover Reference
         </h1>
-        <p class="text-slate-400 text-sm mt-1" style="font-family: cursive;">$Custom-only · do your own research$</p>
+        <p class="text-slate-400 text-sm mt-1" style="font-family: cursive;">Custom-only · do your own research</p>
       </div>
       <div class="text-right text-xs text-slate-500 font-mono">
         Last Data Sync<br>{{ last_data_sync }}
@@ -165,6 +165,8 @@
     function getOption(data) {
       // Gauge: show turnover peak vs today's FULL turnover (B)
       const gaugeMax = data.maxVolDay > 0 ? data.maxVolDay : 1;
+      const amRatio = gaugeMax > 0 ? Math.min(Math.max(data.maxVolAM / gaugeMax, 0), 1) : 0;
+      const amAngle = 180 - (180 * amRatio);
       return {
         tooltip: { trigger: "axis", axisPointer: { type: "shadow" } },
         legend: {
@@ -202,7 +204,7 @@
               show: true,
               distance: -50,
               color: "#64748b",
-              fontSize: 10,
+              fontSize: 8,
               formatter: function (value) {
                 if (value === gaugeMax) return "PEAK: " + gaugeMax.toFixed(2) + " B";
                 return "";
@@ -224,24 +226,26 @@
             center: ["50%", "20%"],
             radius: "38%",
             startAngle: 180,
-            endAngle: 180 - (180 * (data.maxVolAM / gaugeMax)),
+            endAngle: amAngle,
             min: 0,
             max: data.maxVolAM,
             splitNumber: 1,
-            axisLine: { show: false },
+            axisLine: { show: false, lineStyle: { width: 1, color: [[1, "#60a5fa"]] } },
             axisTick: { show: false },
             splitLine: { 
               show: data.maxVolAM > 0, 
-              length: 12, 
-              lineStyle: { color: "#60a5fa", width: 2 } 
+              length: 6, 
+              lineStyle: { color: "#64748b", width: 1 } 
             },
             axisLabel: {
               show: data.maxVolAM > 0,
-              distance: -50,
-              color: "#60a5fa",
-              fontSize: 9,
+              distance: 6,
+              color: "#64748b",
+              fontSize: 7,
+              // 旋转角度，与刻度线对齐
+              rotate: amAngle - 90,
               formatter: function (value) {
-                if (value === data.maxVolAM) return "AM Peak: " + value.toFixed(2) + " B";
+                if (value === data.maxVolAM) return value.toFixed(2) + " B";
                 return "";
               }
             },
