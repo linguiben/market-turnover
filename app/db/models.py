@@ -367,7 +367,7 @@ class AppUser(Base):
     email = Column(String(320), nullable=False)
     password_hash = Column(String(255), nullable=False)
     display_name = Column(String(64), nullable=True)
-    is_active = Column(Boolean, nullable=False, default=True)
+    is_active = Column(Boolean, nullable=False, default=False)
     is_superuser = Column(Boolean, nullable=False, default=False)
     last_login_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())

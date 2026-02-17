@@ -220,6 +220,36 @@
             data: [{ value: data.todayVolDay }]
           },
           {
+            type: "gauge",
+            center: ["50%", "20%"],
+            radius: "38%",
+            startAngle: 180,
+            endAngle: 180 - (180 * (data.maxVolAM / gaugeMax)),
+            min: 0,
+            max: data.maxVolAM,
+            splitNumber: 1,
+            axisLine: { show: false },
+            axisTick: { show: false },
+            splitLine: { 
+              show: data.maxVolAM > 0, 
+              length: 12, 
+              lineStyle: { color: "#60a5fa", width: 2 } 
+            },
+            axisLabel: {
+              show: data.maxVolAM > 0,
+              distance: -50,
+              color: "#60a5fa",
+              fontSize: 9,
+              formatter: function (value) {
+                if (value === data.maxVolAM) return "AM Peak: " + value.toFixed(2) + " B";
+                return "";
+              }
+            },
+            pointer: { show: false },
+            detail: { show: false },
+            data: [{ value: data.maxVolAM }]
+          },
+          {
             name: "Today",
             type: "bar",
             barWidth: 14,

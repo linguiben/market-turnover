@@ -48,9 +48,12 @@ market_index
 -> index_quote_history # todo: 检查哪个job写入
 -> turnover_fact (HSI专属) # todo: 检查哪个job写入
 
-## 2.“当日成交” todo: 1和2的逻辑应该保持一致 
+## 2.“当日成交” 
 -> index_realtime_snapshot (session=AM 且 data_updated_at<=12:30)
 -> index_quote_history
+select * from index_realtime_snapshot where index_id = 1 and trade_date = '2026-02-12' order by id desc limit 10
+select * from index_quote_history where index_id = 1 and trade_date = '2026-02-12'
+select * from index_kline_source_record where index_id = 1 order by trade_date desc -- date update to 2026-02-11
 
 ## 3.“历史均值
 -> index_quote_history.turnover_amount session='AM'/'PM'

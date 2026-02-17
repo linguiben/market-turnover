@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>注册成功</h2>
+<p>您的账号 <strong>{{ email }}</strong> 已成功创建。</p>
+<p style="color:#666;">请等待管理员审核激活后再登录。</p>
+<p class="muted">
+  <a href="{{ (request.scope.get('root_path') or '') }}/login">去登录</a>
+</p>
+{% endblock %}

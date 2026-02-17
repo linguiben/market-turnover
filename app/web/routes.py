@@ -893,9 +893,9 @@ def register_submit(
         email=email_n,
         password_hash=hash_password(password),
         display_name=display_name or None,
-        is_active=True,
+        is_active=False,
         is_superuser=False,
-        last_login_at=datetime.now(timezone.utc),
+        last_login_at=None,
     )
     db.add(user)
     try:
@@ -917,9 +917,14 @@ def register_submit(
         )
 
     _append_auth_visit_log(db, request, user_id=int(user.id), action_type="register")
-    response = RedirectResponse(url=safe_next, status_code=303)
-    set_login_cookie(response, int(user.id))
-    return response
+    return templates.TemplateResponse(
+        "register_pending.html",
+        _template_context(
+            request,
+            current_user=None,
+            email=email_n,
+        ),
+    )
 
 
 @router.get("/login", response_class=HTMLResponse)
@@ -992,7 +997,7 @@ def login_submit(
     response.set_cookie(
         key="v_tracked",
         value="1",
-        max_age=1800,
+        max_age=86400,  # 1 day
         path="/",
         httponly=True,
         samesite="lax",
