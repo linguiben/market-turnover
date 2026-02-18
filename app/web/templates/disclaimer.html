@@ -27,7 +27,15 @@
       <p>To the fullest extent permitted by applicable law, this website and its operators shall not be liable for any direct, indirect, incidental, consequential, special or punitive damages arising out of or in connection with the use of, or inability to use, the information provided on this website.</p>
       <p>If any organization or individual believes that any content on this website infringes their legitimate rights or interests (including but not limited to copyright or data rights), please contact us using the contact information provided on this website. We will promptly investigate and take appropriate actions such as removal or disabling access.</p>
       <p>This website does not provide any form of trading service for securities, futures or other financial products, and does not charge users for any market data displayed.</p>
-      </section>
+    </section>
+
+    <section class="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 space-y-3 text-sm leading-7 text-slate-300 mt-4">
+      <p>Privacy Policy</p>
+      <p>This website does not require user registration and does not actively collect, store, or process any personal identifiable information (PII).</p>
+      <p>Data Collection: Like most websites, we may collect non-identifying information that web browsers and servers typically make available, such as browser type, language preference, referring site, and the date and time of each visitor request. This is used solely for analyzing traffic and improving user experience.</p>
+      <p>Cookies: We may use cookies or similar technologies to enhance your browsing experience. You can choose to set your browser to refuse cookies, though some features of the site may not function properly as a result.</p>
+      <p>Third-Party Links: This website contains links to third-party data sources. We are not responsible for the privacy practices or content of these external sites.</p>
+   </section>
 
     <section class="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 space-y-3 text-sm leading-7 text-slate-300">
       <h2 class="text-base font-semibold text-slate-100">中文</h2>
@@ -39,6 +47,22 @@
       <p>如任何单位或个人认为本网站内容可能涉嫌侵犯其合法权益（包括但不限于著作权、数据权利等），请通过本网站公布的联系方式与我们联系，我们将在核实后及时采取删除、断开链接或其他必要措施。</p>
       <p>本网站不提供任何形式的证券、期货或其他金融产品交易服务，亦不向任何用户收取与行情数据相关的费用。</p>
     </section>
+
+    <section class="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 space-y-3 text-sm leading-7 text-slate-300 mt-4">
+      <p>隐私政策</p>
+      <p>本网站无需用户注册，亦不主动收集、存储或处理任何个人身份信息（PII）。</p>
+      <p>信息收集： 与大多数网站一样，我们可能会收集 Web 浏览器和服务器通常提供的非识别性信息，例如浏览器类型、语言偏好、来源网站以及每个访问者请求的日期和时间。这些信息仅用于分析流量和优化用户体验。</p>
+      <p>Cookie： 我们可能会使用 Cookie 或类似技术来增强您的浏览体验。您可以选择在浏览器设置中拒绝 Cookie，但这可能导致网站的部分功能无法正常运行。</p>
+      <p>第三方链接： 本网站包含指向第三方数据平台的链接。我们不对这些外部网站的隐私惯例或内容负责。</p>
+   </section>
+
+   <section class="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 space-y-3 text-sm leading-7 text-slate-300 mt-4">
+      <p>If you have any questions regarding this policy, please contact us via our <a class="hover:text-blue-300 underline decoration-dotted" href="{{ (request.scope.get('root_path') or '') }}/contact">Contact Page</a>.
+      </p>
+      <p>如果您对本政策有任何疑问，请通过 <a class="hover:text-blue-300 underline decoration-dotted" href="{{ (request.scope.get('root_path') or '') }}/contact">联系页面</a> 与我们联系。
+      </p>
+   </section>
+   {% include "_footer.html" %}
   </main>
 </body>
 </html>

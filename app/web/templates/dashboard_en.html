@@ -18,16 +18,16 @@
 <body class="p-4 md:p-8">
   {% set base = (request.scope.get('root_path') or '') %}
   <div class="max-w-7xl mx-auto">
-    <header class="mb-8 flex flex-wrap justify-between items-center gap-3">
+    <header class="mb-4 flex flex-wrap justify-between items-center gap-3">
       <div>
         <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-emerald-400">
           Market Turnover Reference
-          <span class="ml-2 inline-flex items-center rounded-full border border-amber-400/40 bg-amber-400/20 px-2 py-0.5 align-middle text-xs font-semibold tracking-wide text-amber-300">DELAYED DATA</span>
+          <span class="ml-2 inline-flex items-center rounded-full border border-slate-600 bg-slate-800/70 px-2 py-0.5 align-middle text-xs font-semibold tracking-wide text-slate-200">DELAYED DATA</span>
         </h1>
         <p class="text-slate-400 text-sm mt-1" style="font-family: cursive;">Custom-only · do your own research</p>
       </div>
       <div class="text-right text-xs text-slate-500 font-mono">
-        Last Data Sync (Delayed)<br>{{ last_data_sync }}
+        Last Data Sync<br>{{ last_data_sync }}
       </div>
       <nav class="w-full text-right text-xs text-slate-400 space-x-3">
         <span class="text-slate-400">Visitors: {{ visited_count }}</span>
@@ -35,11 +35,6 @@
         <a class="hover:text-blue-300" href="{{ base }}/jobs">Jobs</a>
       </nav>
     </header>
-
-    <div class="mb-6 rounded-xl border border-slate-700 bg-slate-900/40 px-4 py-3 text-sm text-slate-300">
-      <span class="font-semibold text-slate-100">Delayed Data</span>: Quotes are not real-time and for learning/research only.
-      <a class="ml-1 font-semibold underline decoration-dotted hover:text-blue-300" href="{{ base }}/disclaimer">Disclaimer</a>
-    </div>
 
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
       {% for card in cards %}
@@ -103,6 +98,17 @@
     <div class="bg-[#111827] rounded-2xl p-6 border border-[#243044] mt-6">
       <h2 class="text-lg font-bold mb-4 flex items-center text-slate-200">
         <span class="w-1.5 h-5 bg-amber-400 rounded-full mr-3"></span>Global Markets
+        <span class="relative ml-2 inline-flex items-center group">
+          <button
+            type="button"
+            tabindex="0"
+            aria-label="Global Markets note"
+            class="inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-600 text-[11px] leading-none text-slate-300 hover:border-blue-400 hover:text-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-500/60"
+          >?</button>
+          <span class="pointer-events-none absolute left-1/2 top-7 z-20 hidden w-80 -translate-x-1/2 rounded-lg border border-slate-700 bg-slate-900/95 p-3 text-xs font-normal leading-5 text-slate-300 shadow-xl group-hover:block group-focus-within:block">
+            The delayed market data displayed on this site is for personal technical research only and is not for commercial profit.
+          </span>
+        </span>
       </h2>
       {% if global_quotes and global_quotes|length > 0 %}
         <div class="overflow-x-auto">
@@ -237,7 +243,7 @@
               show: true,
               distance: -50,
               color: "#64748b",
-              fontSize: 8,
+              fontSize: 9,
               formatter: function (value) {
                 if (value === gaugeMax) return "PEAK: " + gaugeMax.toFixed(2) + " B";
                 return "";
@@ -274,7 +280,7 @@
               show: data.maxVolAM > 0,
               distance: 6,
               color: "#64748b",
-              fontSize: 7,
+              fontSize: 8,
               // 旋转角度，与刻度线对齐
               rotate: amAngle - 90,
               formatter: function (value) {
