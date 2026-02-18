@@ -732,6 +732,50 @@ def dashboard_cn(
     return _dashboard_impl(request, db=db, current_user=current_user, lang="zh")
 
 
+@router.get("/disclaimer", response_class=HTMLResponse)
+def disclaimer(
+    request: Request,
+    current_user: AppUser | None = Depends(get_current_user),
+):
+    return templates.TemplateResponse(
+        "disclaimer.html",
+        _template_context(request, current_user=current_user),
+    )
+
+
+@router.get("/cn/disclaimer", response_class=HTMLResponse)
+def disclaimer_cn(
+    request: Request,
+    current_user: AppUser | None = Depends(get_current_user),
+):
+    return templates.TemplateResponse(
+        "disclaimer.html",
+        _template_context(request, current_user=current_user),
+    )
+
+
+@router.get("/contact", response_class=HTMLResponse)
+def contact_page(
+    request: Request,
+    current_user: AppUser | None = Depends(get_current_user),
+):
+    return templates.TemplateResponse(
+        "contact.html",
+        _template_context(request, current_user=current_user),
+    )
+
+
+@router.get("/cn/contact", response_class=HTMLResponse)
+def contact_page_cn(
+    request: Request,
+    current_user: AppUser | None = Depends(get_current_user),
+):
+    return templates.TemplateResponse(
+        "contact.html",
+        _template_context(request, current_user=current_user),
+    )
+
+
 @router.get("/recent", response_class=HTMLResponse)
 def recent(
     request: Request,

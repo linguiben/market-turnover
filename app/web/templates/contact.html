@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>联系方式 / Contact | 股市成交量参考</title>
+  <link rel="icon" href="{{ (request.scope.get('root_path') or '') }}/favicon.ico" />
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen p-4 md:p-8">
+  {% set base = (request.scope.get('root_path') or '') %}
+  <main class="max-w-4xl mx-auto">
+    <header class="mb-8">
+      <p class="text-xs text-slate-500 mb-3 space-x-3">
+        <a class="hover:text-blue-300" href="{{ base }}/cn">返回首页(中文)</a>
+        <a class="hover:text-blue-300" href="{{ base }}/">Back to Dashboard (EN)</a>
+      </p>
+      <h1 class="text-3xl font-bold">Contact / 联系方式</h1>
+    </header>
+
+    <section class="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 space-y-3 text-sm leading-7 text-slate-300">
+      <p>79499480@qq.com</p>
+      <p>QQ79499480</p>
+    </section>
+
+  </main>
+</body>
+</html>

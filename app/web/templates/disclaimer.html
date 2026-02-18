@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Disclaimer / 免责声明 | 股市成交量参考</title>
+  <link rel="icon" href="{{ (request.scope.get('root_path') or '') }}/favicon.ico" />
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen p-4 md:p-8">
+  {% set base = (request.scope.get('root_path') or '') %}
+  <main class="max-w-4xl mx-auto">
+    <header class="mb-8">
+      <p class="text-xs text-slate-500 mb-3 space-x-3">
+        <a class="hover:text-blue-300" href="{{ base }}/">Back to Dashboard (EN)</a>
+        <a class="hover:text-blue-300" href="{{ base }}/cn">返回首页(中文)</a>
+      </p>
+      <h1 class="text-3xl font-bold">Disclaimer / 免责声明</h1>
+    </header>
+
+    <section class="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 space-y-3 text-sm leading-7 text-slate-300 mt-4">
+      <h2 class="text-base font-semibold text-slate-100">English</h2>
+      <p>Disclaimer</p>
+      <p>The market data displayed on this website, including but not limited to index prices, trading volumes and related information, are sourced from publicly available third-party data platforms (such as Eastmoney, Tencent Finance, AASTOCKS, Tushare, etc.) and are provided solely for personal study, research and technical reference purposes. This website makes no representation or warranty of any kind, express or implied, regarding the accuracy, completeness, timeliness or suitability of the data. Such data may be delayed and may contain inaccuracies.</p>
+      <p>All information provided on this website is for reference only and does not constitute any form of investment advice, solicitation, recommendation, or offer to buy or sell any securities, futures or other financial instruments. Any investment decision made based on information from this website is at the sole discretion and risk of the user. Investing involves risk.</p>
+      <p>This website is not affiliated with, endorsed by, authorized by, or in any partnership with any data provider (including but not limited to Eastmoney, Tencent Finance, AASTOCKS, Tushare, etc.). All intellectual property rights and data rights in the market data belong to the respective original providers or rights holders.</p>
+      <p>To the fullest extent permitted by applicable law, this website and its operators shall not be liable for any direct, indirect, incidental, consequential, special or punitive damages arising out of or in connection with the use of, or inability to use, the information provided on this website.</p>
+      <p>If any organization or individual believes that any content on this website infringes their legitimate rights or interests (including but not limited to copyright or data rights), please contact us using the contact information provided on this website. We will promptly investigate and take appropriate actions such as removal or disabling access.</p>
+      <p>This website does not provide any form of trading service for securities, futures or other financial products, and does not charge users for any market data displayed.</p>
+      </section>
+
+    <section class="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 space-y-3 text-sm leading-7 text-slate-300">
+      <h2 class="text-base font-semibold text-slate-100">中文</h2>
+      <p>免责声明</p>
+      <p>本网站所展示的行情数据（包括但不限于指数价格、成交量及相关信息）来源于公开的第三方数据平台（如东方财富、腾讯财经、AASTOCKS、Tushare 等），仅供学习研究与技术交流使用。本站不对数据的准确性、完整性、及时性或适用性作出任何形式的保证，相关数据可能存在延迟或误差。</p>
+      <p>本网站所提供的所有信息仅供参考，不构成任何形式的投资建议、要约或招揽，也不构成任何证券、期货或其他金融产品的推荐或保证。任何基于本网站信息所作出的投资决策，均由用户自行承担风险与责任。投资有风险，入市需谨慎。</p>
+      <p>本网站与相关数据提供方（包括但不限于东方财富、腾讯财经、AASTOCKS、Tushare 等）不存在任何隶属、合作、授权或认可关系。相关行情数据的版权及所有权归其原始提供方或权利人所有。</p>
+      <p>除法律法规另有强制性规定外，在法律允许的最大范围内，本网站及其运营者不对因使用或无法使用本网站信息而导致的任何直接、间接、附带、衍生或惩罚性损失承担任何责任。</p>
+      <p>如任何单位或个人认为本网站内容可能涉嫌侵犯其合法权益（包括但不限于著作权、数据权利等），请通过本网站公布的联系方式与我们联系，我们将在核实后及时采取删除、断开链接或其他必要措施。</p>
+      <p>本网站不提供任何形式的证券、期货或其他金融产品交易服务，亦不向任何用户收取与行情数据相关的费用。</p>
+    </section>
+  </main>
+</body>
+</html>
