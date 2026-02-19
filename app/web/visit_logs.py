@@ -14,7 +14,7 @@ from app.web.auth import AUTH_COOKIE_NAME, parse_session_user_id
 
 logger = logging.getLogger(__name__)
 
-VISIT_TRACKING_MAX_AGE = 24 * 3600
+VISIT_TRACKING_MAX_AGE = 7 * 24 * 3600
 
 # Limit background analytics concurrency to avoid exhausting DB connections.
 _visit_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="visitlog")

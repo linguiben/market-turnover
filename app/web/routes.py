@@ -50,7 +50,7 @@ templates = Jinja2Templates(directory="app/web/templates")
 # template helpers
 from app.services.formatting import format_amount_b, format_hsi_price_x100
 
-VISIT_TRACKING_MAX_AGE = 24 * 3600 # 1 day in seconds
+VISIT_TRACKING_MAX_AGE = 7 * 24 * 3600  # 7 days in seconds
 templates.env.globals["format_yi"] = format_amount_b
 templates.env.globals["format_hsi"] = format_hsi_price_x100
 
@@ -1043,7 +1043,7 @@ def login_submit(
     response.set_cookie(
         key="v_tracked",
         value="1",
-        max_age=int(VISIT_TRACKING_MAX_AGE),  # 1 day
+        max_age=int(VISIT_TRACKING_MAX_AGE),  # 7 days
         path="/",
         httponly=True,
         samesite="lax",
