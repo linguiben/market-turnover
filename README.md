@@ -15,6 +15,28 @@ docker compose up -d --build
 # then open http://localhost:8000
 ```
 
+## 外部数据源（URL整理）
+
+以下为项目当前代码中实际使用到的外部市场数据源接口/页面：
+
+| 数据源 | 主要用途 | URL |
+| --- | --- | --- |
+| Tushare Pro | 指数日线（HSI/SSE/SZSE）与部分分钟K线（SDK） | https://api.tushare.pro |
+| Eastmoney Suggest API | 代码/QuoteID 解析（如 HSI -> secid） | https://searchapi.eastmoney.com/api/suggest/get |
+| Eastmoney Kline API | 指数分钟线、盘中快照与成交额聚合 | https://push2his.eastmoney.com/api/qt/stock/kline/get |
+| Tencent 行情接口 | 指数日线/实时行情补充 | https://web.ifzq.gtimg.cn/appstock/app/fqkline/get |
+| Tencent 即时行情接口 | 多标的实时报价 | https://qt.gtimg.cn/q= |
+| AASTOCKS 指数数据页 | HSI 全日成交抓取（页面解析） | https://www.aastocks.com/tc/stocks/market/index/hk-index-con.aspx |
+| AASTOCKS 指数数据接口 | HSI 快照（价格/涨跌/成交） | https://www.aastocks.com/tc/resources/datafeed/getstockindex.ashx?type=5 |
+| HKEX 统计归档 JSON | 港股历史全日成交回填 | https://www.hkex.com.hk/eng/stat/smstat/mthbull/rpt_data_statistics_archive_trading_data_{start}_{end}.json |
+
+对应代码位置（便于后续维护）：
+- `app/sources/tushare_index.py`, `app/sources/tushare_kline.py`
+- `app/sources/eastmoney_index.py`, `app/sources/eastmoney_intraday.py`
+- `app/sources/tencent_index.py`, `app/services/tencent_quote.py`
+- `app/sources/aastocks.py`, `app/sources/aastocks_index.py`
+- `app/sources/hkex.py`
+
 ## 数据源分析
 ```sql
 # HSI
