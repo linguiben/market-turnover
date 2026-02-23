@@ -37,6 +37,23 @@ docker compose up -d --build
 - `app/sources/aastocks.py`, `app/sources/aastocks_index.py`
 - `app/sources/hkex.py`
 
+### 数据源优先级（建议）
+
+> 说明：按“稳定性 + 数据口径一致性 + 可维护性”综合排序；不同作业可按场景覆盖。
+
+| 优先级 | 数据源 | 适用场景 | 说明 |
+| --- | --- | --- | --- |
+| P0（最高） | HKEX 统计归档 JSON | 港股历史全日成交回填 | 官方统计口径，历史数据权威、稳定，优先用于 `backfill_hkex`。 |
+| P1 | Tushare Pro | 指数日线（HSI/SSE/SZSE）主数据源 | 结构化程度高、接口稳定，适合作为日线主源（`fetch_tushare_index` / `backfill_tushare_index`）。 |
+| P2 | Eastmoney Kline + Suggest | 盘中快照、分钟线、A股半日/全日成交聚合 | 适合高频盘中与分钟级补充；HSI 需先经 Suggest 解析 QuoteID。 |
+| P3 | AASTOCKS（页面/数据接口） | HSI 快照与页面抓取兜底 | 作为港股数据补充与校验源，页面结构变更风险高于 API。 |
+| P4 | Tencent 行情接口 | 实时/日线补充与交叉校验 | 可用作备源与对账，不建议单独作为核心主源。 |
+
+建议落地策略：
+- **港股历史全日成交**：优先 HKEX（P0）。
+- **指数日线**：优先 Tushare（P1），必要时用 Tencent/Eastmoney 做交叉校验。
+- **盘中分钟与半日成交**：优先 Eastmoney（P2），AASTOCKS/Tencent 作为兜底或验数。
+
 ## 数据源分析
 ```sql
 # HSI
