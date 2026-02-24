@@ -63,6 +63,10 @@ class Settings(BaseSettings):
     # HKEX
     HKEX_TIMEOUT_SECONDS: int = 20
 
+    # Optional SOCKS/HTTP proxy for Eastmoney requests only.
+    # Example: socks5://127.0.0.1:1080
+    EASTMONEY_PROXY_URL: str | None = None
+
     @model_validator(mode="after")
     def resolve_database_url(self) -> Settings:
         raw_url = (self.DATABASE_URL or "").strip()

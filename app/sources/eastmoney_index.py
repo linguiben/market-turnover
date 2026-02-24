@@ -5,6 +5,8 @@ from datetime import date, datetime, time, timedelta
 
 import httpx
 
+from app.config import settings
+
 
 EM_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
@@ -44,6 +46,14 @@ class EastmoneyIntradaySnapshot:
 _SECID_CACHE: dict[str, str] = {}
 
 
+def _client_kwargs(timeout_seconds: int) -> dict:
+    proxy = (settings.EASTMONEY_PROXY_URL or "").strip() or None
+    kwargs = {"timeout": timeout_seconds, "headers": EM_HEADERS}
+    if proxy:
+        kwargs["proxy"] = proxy
+    return kwargs
+
+
 def _secid_from_ts_code(ts_code: str, *, timeout_seconds: int = 20) -> str:
     """Convert symbol to Eastmoney secid.
 
@@ -68,7 +78,7 @@ def _secid_from_ts_code(ts_code: str, *, timeout_seconds: int = 20) -> str:
 
     # HSI (HK index) - resolve by keyword
     if ts_code == "HSI":
-        with httpx.Client(timeout=timeout_seconds, headers=EM_HEADERS) as client:
+        with httpx.Client(**_client_kwargs(timeout_seconds)) as client:
             resp = client.get(
                 "https://searchapi.eastmoney.com/api/suggest/get",
                 params={"input": "HSI", "type": "14", "count": "10"},
@@ -182,7 +192,7 @@ def fetch_minute_kline(
         "fields2": "f51,f52,f53,f54,f55,f56,f57,f58",
     }
 
-    with httpx.Client(timeout=timeout_seconds, headers=EM_HEADERS) as client:
+    with httpx.Client(**_client_kwargs(timeout_seconds)) as client:
         resp = client.get("https://push2his.eastmoney.com/api/qt/stock/kline/get", params=params)
         resp.raise_for_status()
         data = resp.json()

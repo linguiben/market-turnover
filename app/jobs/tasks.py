@@ -878,6 +878,9 @@ def run_job(db: Session, job_name: str, params: dict | None = None) -> JobRun:
 
             for code in codes:
                 try:
+                    jitter_seconds = random.randint(1, 30)
+                    pytime.sleep(jitter_seconds)
+
                     snap = fetch_eastmoney_realtime_snapshot(code=code, timeout_seconds=settings.HKEX_TIMEOUT_SECONDS)
                     index_row = ensure_market_index(db, code)
 

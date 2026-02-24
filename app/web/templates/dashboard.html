@@ -10,9 +10,56 @@
   <style>
     html { -ms-overflow-style: none; scrollbar-width: none; }
     html::-webkit-scrollbar { width: 0; height: 0; background: transparent; }
-    body { background-color: #0f172a; color: #f8fafc; overflow: auto; -ms-overflow-style: none; }
+    body {
+      --bg-body: #0f172a;
+      --text-main: #f8fafc;
+      --card-bg: rgba(30, 41, 59, 0.7);
+      --card-border: rgba(51, 65, 85, 1);
+      --panel-bg: #1e273a;
+      --panel-border: #2d374d;
+      --panel-alt-bg: #111827;
+      --panel-alt-border: #243044;
+      --disclaimer-bg: rgba(15, 23, 42, 0.45);
+      --disclaimer-border: #1e293b;
+      --toggle-bg: rgba(30, 41, 59, 0.85);
+      --toggle-border: rgba(71, 85, 105, 0.9);
+      --toggle-text: #cbd5e1;
+      background-color: var(--bg-body);
+      color: var(--text-main);
+      overflow: auto;
+      -ms-overflow-style: none;
+    }
+    body[data-theme="light"] {
+      --bg-body: #f8fafc;
+      --text-main: #0f172a;
+      --card-bg: rgba(255, 255, 255, 0.92);
+      --card-border: #cbd5e1;
+      --panel-bg: #ffffff;
+      --panel-border: #cbd5e1;
+      --panel-alt-bg: #f8fafc;
+      --panel-alt-border: #dbeafe;
+      --disclaimer-bg: rgba(241, 245, 249, 0.85);
+      --disclaimer-border: #cbd5e1;
+      --toggle-bg: #ffffff;
+      --toggle-border: #cbd5e1;
+      --toggle-text: #334155;
+    }
     body::-webkit-scrollbar { width: 0; height: 0; background: transparent; }
     .card { background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(51, 65, 85, 1); backdrop-filter: blur(8px); }
+    .card { background: var(--card-bg); border-color: var(--card-border); }
+    .themed-panel { background: var(--panel-bg); border-color: var(--panel-border); }
+    .themed-panel-alt { background: var(--panel-alt-bg); border-color: var(--panel-alt-border); }
+    .themed-disclaimer { background: var(--disclaimer-bg); border-color: var(--disclaimer-border); }
+    .theme-toggle-btn { background: var(--toggle-bg); border-color: var(--toggle-border); color: var(--toggle-text); }
+    body[data-theme="light"] .text-slate-500 { color: #64748b !important; }
+    body[data-theme="light"] .text-slate-400 { color: #475569 !important; }
+    body[data-theme="light"] .text-slate-300 { color: #334155 !important; }
+    body[data-theme="light"] .text-slate-200 { color: #1e293b !important; }
+    body[data-theme="light"] .border-slate-800 { border-color: #cbd5e1 !important; }
+    body[data-theme="light"] .border-slate-700 { border-color: #cbd5e1 !important; }
+    body[data-theme="light"] .border-slate-600 { border-color: #94a3b8 !important; }
+    body[data-theme="light"] .bg-slate-900\/95 { background-color: rgba(255, 255, 255, 0.97) !important; }
+    body[data-theme="light"] .bg-slate-800\/70 { background-color: rgba(226, 232, 240, 0.9) !important; }
   </style>
 </head>
 <body class="p-4 md:p-8">
@@ -30,6 +77,9 @@
         Last Data Sync<br>{{ last_data_sync }}
       </div>
       <nav class="w-full text-right text-xs text-slate-400 space-x-3">
+        <button id="themeToggleBtn" type="button" class="theme-toggle-btn rounded-md border px-2 py-1 text-xs font-semibold transition-colors hover:border-blue-400 hover:text-blue-300">
+          白天模式
+        </button>
         <span class="text-slate-400">Visitors: {{ visited_count }}</span>
         <a class="hover:text-blue-300" href="{{ base }}/">EN</a>
         <a class="hover:text-blue-300" href="{{ base }}/jobs">Jobs</a>
@@ -61,7 +111,7 @@
       {% endfor %}
     </div>
 
-    <div class="bg-[#1e273a] rounded-2xl p-6 border border-[#2d374d] mt-6">
+    <div class="themed-panel rounded-2xl p-6 border mt-6">
       <h2 class="text-lg font-bold mb-4 flex items-center text-slate-200">
         <span class="w-1.5 h-5 bg-blue-500 rounded-full mr-3"></span>智能行情分析 (Insights)
         <span class="relative ml-2 inline-flex items-center group">
@@ -95,7 +145,7 @@
       </div>
     </div>
 
-    <div class="bg-[#111827] rounded-2xl p-6 border border-[#243044] mt-6">
+    <div class="themed-panel-alt rounded-2xl p-6 border mt-6">
       <h2 class="text-lg font-bold mb-4 flex items-center text-slate-200">
         <span class="w-1.5 h-5 bg-amber-400 rounded-full mr-3"></span>全球股市 (Global Markets)
         <span class="relative ml-2 inline-flex items-center group">
@@ -140,7 +190,7 @@
       {% endif %}
     </div>
 
-    <div class="mt-6 rounded-xl border border-slate-800 bg-slate-900/40 px-4 py-3 text-xs text-slate-400">
+    <div class="themed-disclaimer mt-6 rounded-xl border px-4 py-3 text-xs text-slate-400">
       本页面行情数据来源于第三方平台（如雅虎财经、谷歌财经、东方财富等），仅供学习研究参考，不构成投资建议，数据可能存在延迟或误差。详情请参阅
       <a class="font-semibold hover:text-amber-200 underline decoration-dotted" href="{{ base }}/disclaimer">免责声明</a>
     </div>
@@ -149,7 +199,18 @@
   </div>
 
   <script>
-    function getOption(data) {
+    function isLightTheme() {
+      return document.body.dataset.theme === "light";
+    }
+
+    function getOption(data, lightTheme) {
+      const axisText = lightTheme ? "#475569" : "#94a3b8";
+      const axisLine = lightTheme ? "#94a3b8" : "#334155";
+      const splitLine = lightTheme ? "#e2e8f0" : "#1e293b";
+      const gaugeTrack = lightTheme ? "#dbeafe" : "#2d374d";
+      const gaugeValue = lightTheme ? "#0f172a" : "#ffffff";
+      const gaugeLabel = lightTheme ? "#64748b" : "#64748b";
+
       // Gauge: show turnover peak vs today's FULL turnover (B)
       const gaugeMax = data.maxVolDay > 0 ? data.maxVolDay : 1;
       const amRatio = gaugeMax > 0 ? Math.min(Math.max(data.maxVolAM / gaugeMax, 0), 1) : 0;
@@ -159,19 +220,19 @@
         legend: {
           data: ["当日成交", "昨日成交", "5日均值", "10日均值"],
           bottom: "0",
-          textStyle: { color: "#94a3b8" }
+          textStyle: { color: axisText }
         },
         grid: { top: "40%", left: "8%", right: "11%", bottom: "15%", containLabel: true },
         xAxis: {
           type: "category",
           data: ["半日成交量(B)", "全日成交量(B)"],
-          axisLine: { lineStyle: { color: "#334155" } },
-          axisLabel: { color: "#94a3b8", fontSize: 10 }
+          axisLine: { lineStyle: { color: axisLine } },
+          axisLabel: { color: axisText, fontSize: 10 }
         },
         yAxis: {
           type: "value",
-          splitLine: { lineStyle: { color: "#1e293b" } },
-          axisLabel: { color: "#94a3b8", fontSize: 10 }
+          splitLine: { lineStyle: { color: splitLine } },
+          axisLabel: { color: axisText, fontSize: 10 }
         },
         series: [
           {
@@ -182,7 +243,7 @@
             endAngle: 0,
             min: 0,
             max: gaugeMax,
-            axisLine: { lineStyle: { width: 5, color: [[1, "#2d374d"]] } },
+            axisLine: { lineStyle: { width: 5, color: [[1, gaugeTrack]] } },
             progress: { show: true, width: 5, itemStyle: { color: "#3b82f6" } },
             pointer: { width: 2, length: "65%", itemStyle: { color: "#fbbf24" } },
             axisTick: { show: false },
@@ -190,7 +251,7 @@
             axisLabel: {
               show: true,
               distance: -50,
-              color: "#64748b",
+              color: gaugeLabel,
               fontSize: 9,
               formatter: function (value) {
                 if (value === gaugeMax) return "PEAK: " + gaugeMax.toFixed(2) + " B";
@@ -201,7 +262,7 @@
               offsetCenter: [0, "15%"],
               fontSize: 16,
               fontWeight: "bold",
-              color: "#ffffff",
+              color: gaugeValue,
               formatter: function (value) {
                 return value.toFixed(2) + " B";
               }
@@ -227,7 +288,7 @@
             axisLabel: {
               show: data.maxVolAM > 0,
               distance: 6,
-              color: "#64748b",
+              color: gaugeLabel,
               fontSize: 8,
               // 旋转角度，与刻度线对齐
               rotate: amAngle - 90,
@@ -281,14 +342,45 @@
       };
     }
 
+    function detectDefaultTheme() {
+      const saved = localStorage.getItem("dashboard_theme");
+      if (saved === "light" || saved === "dark") {
+        return saved;
+      }
+      return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+    }
+
+    function applyTheme(theme) {
+      document.body.dataset.theme = theme;
+      const btn = document.getElementById("themeToggleBtn");
+      if (btn) {
+        btn.textContent = theme === "dark" ? "白天模式" : "黑夜模式";
+      }
+    }
+
+    applyTheme(detectDefaultTheme());
+
     const charts = {{ charts | tojson }};
+    const chartInstances = [];
+
     charts.forEach(item => {
       const node = document.getElementById(item.id);
       if (!node) return;
       const chart = echarts.init(node);
-      chart.setOption(getOption(item.data));
+      chartInstances.push({ chart, data: item.data });
+      chart.setOption(getOption(item.data, isLightTheme()));
       window.addEventListener("resize", () => chart.resize());
     });
+
+    const themeToggleBtn = document.getElementById("themeToggleBtn");
+    if (themeToggleBtn) {
+      themeToggleBtn.addEventListener("click", () => {
+        const nextTheme = isLightTheme() ? "dark" : "light";
+        localStorage.setItem("dashboard_theme", nextTheme);
+        applyTheme(nextTheme);
+        chartInstances.forEach(item => item.chart.setOption(getOption(item.data, isLightTheme()), true));
+      });
+    }
 
     // Auto-refresh every 60 seconds
     setTimeout(() => {
