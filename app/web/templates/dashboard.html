@@ -140,58 +140,6 @@
       {% endif %}
     </div>
 
-    <div class="bg-[#0b1220] rounded-2xl p-6 border border-[#243044] mt-6">
-      <h2 class="text-lg font-bold mb-4 flex items-center text-slate-200">
-        <span class="w-1.5 h-5 bg-violet-400 rounded-full mr-3"></span>Most Active Trade Corridor（跨市場資金通道｜POC）
-        <span class="relative ml-2 inline-flex items-center group">
-          <button
-            type="button"
-            tabindex="0"
-            aria-label="POC说明"
-            class="inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-600 text-[11px] leading-none text-slate-300 hover:border-blue-400 hover:text-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-500/60"
-          >?</button>
-          <span class="pointer-events-none absolute left-1/2 top-7 z-20 hidden w-64 -translate-x-1/2 rounded-lg border border-slate-700 bg-slate-900/95 p-3 text-xs font-normal leading-5 text-slate-300 shadow-xl group-hover:block group-focus-within:block">
-            本部分内容为模拟数据，不反映真实数据。
-          </span>
-        </span>
-      </h2>
-
-      {% if corridor %}
-        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div class="card rounded-2xl p-4">
-            <div class="text-xs text-slate-400">交易額最高</div>
-            <div class="mt-1 text-slate-200 font-bold">{{ corridor.highest_turnover.name if corridor.highest_turnover else '--' }}</div>
-            <div class="mt-2 text-sm text-slate-300">{{ format_yi(corridor.highest_turnover.turnover_hkd) if corridor.highest_turnover else '--' }}</div>
-          </div>
-          <div class="card rounded-2xl p-4">
-            <div class="text-xs text-slate-400">淨流入最大</div>
-            <div class="mt-1 text-slate-200 font-bold">{{ corridor.max_net_inflow.name if corridor.max_net_inflow else '--' }}</div>
-            <div class="mt-2 text-sm font-mono {% if corridor.max_net_inflow and corridor.max_net_inflow.net_inflow_hkd and corridor.max_net_inflow.net_inflow_hkd >= 0 %}text-emerald-400{% else %}text-rose-400{% endif %}">
-              {{ format_yi(corridor.max_net_inflow.net_inflow_hkd) if corridor.max_net_inflow else '--' }}
-            </div>
-          </div>
-          <div class="card rounded-2xl p-4">
-            <div class="text-xs text-slate-400">淨流出最大</div>
-            <div class="mt-1 text-slate-200 font-bold">{{ corridor.max_net_outflow.name if corridor.max_net_outflow else '--' }}</div>
-            <div class="mt-2 text-sm font-mono {% if corridor.max_net_outflow and corridor.max_net_outflow.net_inflow_hkd and corridor.max_net_outflow.net_inflow_hkd >= 0 %}text-emerald-400{% else %}text-rose-400{% endif %}">
-              {{ format_yi(corridor.max_net_outflow.net_inflow_hkd) if corridor.max_net_outflow else '--' }}
-            </div>
-          </div>
-          <div class="card rounded-2xl p-4">
-            <div class="text-xs text-slate-400">交易筆數最多</div>
-            <div class="mt-1 text-slate-200 font-bold">{{ corridor.max_trades.name if corridor.max_trades else '--' }}</div>
-            <div class="mt-2 text-sm text-slate-300 font-mono">{{ '{:,}'.format(corridor.max_trades.trades_count) if corridor.max_trades and corridor.max_trades.trades_count else '--' }}</div>
-          </div>
-        </div>
-
-        <div class="mt-4 text-xs text-slate-500">
-          Source: {{ corridor.rows[0].source if corridor.rows and corridor.rows[0].source else 'N/A' }} ｜As of: {{ corridor.rows[0].asof if corridor.rows and corridor.rows[0].asof else '' }}
-        </div>
-      {% else %}
-        <p class="text-slate-500 text-sm">暫時冇 trade corridor 數據（POC）。</p>
-      {% endif %}
-    </div>
-
     <div class="mt-6 rounded-xl border border-slate-800 bg-slate-900/40 px-4 py-3 text-xs text-slate-400">
       本页面行情数据来源于第三方平台（如雅虎财经、谷歌财经、东方财富等），仅供学习研究参考，不构成投资建议，数据可能存在延迟或误差。详情请参阅
       <a class="font-semibold hover:text-amber-200 underline decoration-dotted" href="{{ base }}/disclaimer">免责声明</a>
