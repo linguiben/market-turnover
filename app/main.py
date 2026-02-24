@@ -45,10 +45,10 @@ def _run_job_with_new_session(job_name: str) -> None:
 def _build_scheduler() -> BackgroundScheduler:
     scheduler = BackgroundScheduler(timezone=ZoneInfo(settings.TZ))
 
-    # Eastmoney realtime snapshot (stock/get, 11 indices), every 10 minutes in trading hours.
+    # Eastmoney realtime snapshot (stock/get, 11 indices), every 30 minutes in trading hours.
     scheduler.add_job(
         _run_job_with_new_session,
-        CronTrigger(day_of_week="mon-fri", hour="9-16", minute="*/10"),
+        CronTrigger(day_of_week="mon-fri", hour="9-16", minute="*/30"),
         kwargs={"job_name": "fetch_eastmoney_realtime_snapshot"},
         id="fetch_eastmoney_realtime_snapshot_interval",
         replace_existing=True,
@@ -67,10 +67,10 @@ def _build_scheduler() -> BackgroundScheduler:
         misfire_grace_time=120,
     )
 
-    # Existing intraday snapshot refresh during trading hours (Mon-Fri, every 2 minutes, 09:00-17:00).
+    # Existing intraday snapshot refresh during trading hours (Mon-Fri, every 3 minutes, 09:00-17:00).
     scheduler.add_job(
         _run_job_with_new_session,
-        CronTrigger(day_of_week="mon-fri", hour="9-16", minute="*/2"),
+        CronTrigger(day_of_week="mon-fri", hour="9-16", minute="*/3"),
         kwargs={"job_name": "fetch_intraday_snapshot"},
         id="fetch_intraday_snapshot_interval",
         replace_existing=True,

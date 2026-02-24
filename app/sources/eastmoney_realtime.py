@@ -7,6 +7,16 @@ from zoneinfo import ZoneInfo
 import httpx
 
 
+EM_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+    "Referer": "https://quote.eastmoney.com/",
+    "Origin": "https://quote.eastmoney.com",
+    "Connection": "keep-alive",
+}
+
+
 _CODE_TO_SECID = {
     "SSE": "1.000001",
     "SZSE": "0.399001",
@@ -52,7 +62,7 @@ def _resolve_secid_by_suggest(code: str, timeout_seconds: int = 20) -> str:
 
     candidates = _CODE_CANDIDATES.get(code, [code])
 
-    with httpx.Client(timeout=timeout_seconds, headers={"User-Agent": "market-turnover/0.1"}) as client:
+    with httpx.Client(timeout=timeout_seconds, headers=EM_HEADERS) as client:
         for key in candidates:
             resp = client.get(
                 "https://searchapi.eastmoney.com/api/suggest/get",
@@ -85,7 +95,7 @@ def fetch_realtime_snapshot(*, code: str, timeout_seconds: int = 20) -> Eastmone
         "fields": "f43,f47,f48,f57,f58,f60,f86,f169,f170",
     }
 
-    with httpx.Client(timeout=timeout_seconds, headers={"User-Agent": "market-turnover/0.1"}) as client:
+    with httpx.Client(timeout=timeout_seconds, headers=EM_HEADERS) as client:
         resp = client.get("https://push2.eastmoney.com/api/qt/stock/get", params=params)
         resp.raise_for_status()
         raw = resp.json() or {}

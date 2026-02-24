@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import traceback
+import random
+import time as pytime
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -911,6 +913,10 @@ def run_job(db: Session, job_name: str, params: dict | None = None) -> JobRun:
             }
 
         elif job_name == "fetch_intraday_snapshot":
+
+            # jitter: random wait 1-30 seconds before each run to reduce burst risk
+            jitter_seconds = random.randint(1, 30)
+            pytime.sleep(jitter_seconds)
 
             # Intraday snapshot for indices (default: all 11 indices)
             index_map = settings.tushare_index_map()
