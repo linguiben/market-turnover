@@ -84,7 +84,7 @@ AVAILABLE_JOBS: tuple[dict, ...] = (
         "name": "fetch_eastmoney_realtime_snapshot",
         "label": "抓取EastMoney实时快照(11指数)",
         "description": "使用 push2.eastmoney.com/api/qt/stock/get 抓取11个指数实时快照，落库到 index_realtime_api_snapshot。",
-        "schedule": "工作日 09:00-17:00，每2分钟",
+        "schedule": "工作日 09:00-17:00，每10分钟",
         "targets": ["index_realtime_api_snapshot"],
         "params": [
             {"name": "codes", "label": "Index codes (comma)", "type": "text", "placeholder": "HSI,SSE,SZSE,HS11,DJI,IXIC,SPX,N225,UKX,DAX,ESTOXX50E"},

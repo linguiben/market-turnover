@@ -45,10 +45,10 @@ def _run_job_with_new_session(job_name: str) -> None:
 def _build_scheduler() -> BackgroundScheduler:
     scheduler = BackgroundScheduler(timezone=ZoneInfo(settings.TZ))
 
-    # Eastmoney realtime snapshot (stock/get, 11 indices), every 2 minutes in trading hours.
+    # Eastmoney realtime snapshot (stock/get, 11 indices), every 10 minutes in trading hours.
     scheduler.add_job(
         _run_job_with_new_session,
-        CronTrigger(day_of_week="mon-fri", hour="9-16", minute="*/2"),
+        CronTrigger(day_of_week="mon-fri", hour="9-16", minute="*/10"),
         kwargs={"job_name": "fetch_eastmoney_realtime_snapshot"},
         id="fetch_eastmoney_realtime_snapshot_interval",
         replace_existing=True,
