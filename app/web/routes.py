@@ -75,18 +75,18 @@ AVAILABLE_JOBS: tuple[dict, ...] = (
     {
         "name": "fetch_tushare_index",
         "label": "同步最新指数",
-        "description": "同步 HSI/SSE/SZSE 的最新一个交易日(日线)数据。",
+        "description": "同步 HSI/SSE/SZSE/DJI/IXIC/SPX/FTSE/GDAXI/N225/KS11/CSX5P 的最新一个交易日(日线)数据，使用 Tushare index_global 接口。",
         "schedule": "每日 20:00（定时）+ 手动",
         "targets": ["index_quote_source_record", "index_quote_history", "index_realtime_snapshot"],
     },
     {
         "name": "fetch_intraday_snapshot",
         "label": "抓取盘中快照",
-        "description": "抓取盘中快照：HSI(AASTOCKS), SSE/SZSE(EASTMONEY 1min)。",
+        "description": "抓取盘中快照：HSI/SSE/SZSE/HS11(AASTOCKS/EASTMONEY), DJI/IXIC/SPX/N225/UKX/DAX/ESTOXX50E/HS11(Tencent)。默认抓取11个指数。",
         "schedule": "工作日 09:00-17:00，每5分钟",
         "targets": ["index_realtime_snapshot"],
         "params": [
-            {"name": "codes", "label": "Index codes (comma)", "type": "text", "placeholder": "HSI,SSE,SZSE"},
+            {"name": "codes", "label": "Index codes (comma)", "type": "text", "placeholder": "HSI,SSE,SZSE,HS11,DJI,IXIC,SPX,N225,UKX,DAX,ESTOXX50E"},
             {"name": "force_source", "label": "Force source (optional)", "type": "text", "placeholder": "AASTOCKS/EASTMONEY/TUSHARE"},
         ],
     },
@@ -116,7 +116,7 @@ AVAILABLE_JOBS: tuple[dict, ...] = (
     {
         "name": "backfill_tushare_index",
         "label": "回填指数1年",
-        "description": "回填最近 1 年 HSI/SSE/SZSE 日线数据（跳过已存在记录）。",
+        "description": "回填最近 1 年 HSI/SSE/SZSE/DJI/IXIC/SPX/FTSE/GDAXI/N225/KS11/CSX5P 日线数据（跳过已存在记录）。",
         "targets": ["index_quote_source_record", "index_quote_history"],
     },
     {

@@ -21,6 +21,17 @@ INDEX_META = {
     "SZSE": {"name_zh": "深证成指", "name_en": "SZSE Component Index", "market": "CN", "exchange": "SZSE", "currency": "CNY", "timezone": "Asia/Shanghai", "display_order": 30},
     "DJI": {"name_zh": "道琼斯指数", "name_en": "Dow Jones", "market": "US", "exchange": "NYSE", "currency": "USD", "timezone": "America/New_York", "display_order": 40},
     "IXIC": {"name_zh": "纳斯达克", "name_en": "NASDAQ", "market": "US", "exchange": "NASDAQ", "currency": "USD", "timezone": "America/New_York", "display_order": 50},
+    "SPX": {"name_zh": "标普500", "name_en": "S&P 500", "market": "US", "exchange": "NYSE", "currency": "USD", "timezone": "America/New_York", "display_order": 55},
+    "N225": {"name_zh": "日经225", "name_en": "Nikkei 225", "market": "JP", "exchange": "TSE", "currency": "JPY", "timezone": "Asia/Tokyo", "display_order": 60},
+    "FTSE": {"name_zh": "富时100", "name_en": "FTSE 100", "market": "UK", "exchange": "LSE", "currency": "GBP", "timezone": "Europe/London", "display_order": 70},
+    "GDAXI": {"name_zh": "德国DAX", "name_en": "DAX", "market": "DE", "exchange": "Xetra", "currency": "EUR", "timezone": "Europe/Berlin", "display_order": 80},
+    "CSX5P": {"name_zh": "欧洲斯托克50", "name_en": "Euro Stoxx 50", "market": "EU", "exchange": "EUREX", "currency": "EUR", "timezone": "Europe/Berlin", "display_order": 90},
+    "KS11": {"name_zh": "韩国综合指数", "name_en": "KOSPI", "market": "KR", "exchange": "KRX", "currency": "KRW", "timezone": "Asia/Seoul", "display_order": 35},
+    # Aliases for display
+    "UKX": {"name_zh": "富时100", "name_en": "FTSE 100", "market": "UK", "exchange": "LSE", "currency": "GBP", "timezone": "Europe/London", "display_order": 70},
+    "DAX": {"name_zh": "德国DAX", "name_en": "DAX", "market": "DE", "exchange": "Xetra", "currency": "EUR", "timezone": "Europe/Berlin", "display_order": 80},
+    "ESTOXX50E": {"name_zh": "欧洲斯托克50", "name_en": "Euro Stoxx 50", "market": "EU", "exchange": "EUREX", "currency": "EUR", "timezone": "Europe/Berlin", "display_order": 90},
+    "HS11": {"name_zh": "韩国综合指数", "name_en": "KOSPI", "market": "KR", "exchange": "KRX", "currency": "KRW", "timezone": "Asia/Seoul", "display_order": 35},
 }
 
 

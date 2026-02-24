@@ -51,7 +51,10 @@ class Settings(BaseSettings):
     TUSHARE_PRO_TOKEN: str | None = None
     TUSHARE_PRO_BASE: str = "https://api.tushare.pro"
     TUSHARE_TIMEOUT_SECONDS: int = 15
-    TUSHARE_INDEX_CODES: str = "HSI=HSI.HI,SSE=000001.SH,SZSE=399001.SZ"
+    # Format: CODE=TUSHARE_TS_CODE (global indices without dot use index_global API, cn indices with .SH/.SZ use index_daily)
+    # CN indices: SSE=000001.SH, SZSE=399001.SZ
+    # Global indices (index_global): HSI, DJI, IXIC, SPX, FTSE, GDAXI, N225, KS11, CSX5P
+    TUSHARE_INDEX_CODES: str = "HSI=HSI.HI,SSE=000001.SH,SZSE=399001.SZ,DJI=DJI,IXIC=IXIC,SPX=SPX,FTSE=FTSE,GDAXI=GDAXI,N225=N225,KS11=KS11,CSX5P=CSX5P"
 
     # AASTOCKS
     AASTOCKS_TIMEOUT_SECONDS: int = 10

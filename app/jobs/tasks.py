@@ -864,12 +864,13 @@ def run_job(db: Session, job_name: str, params: dict | None = None) -> JobRun:
 
         elif job_name == "fetch_intraday_snapshot":
 
-            # Intraday snapshot for indices (default: HSI,SSE,SZSE,DJI,IXIC)
+            # Intraday snapshot for indices (default: all 11 indices)
             index_map = settings.tushare_index_map()
             written = 0
             errors: dict[str, str] = {}
 
-            codes = ["HSI", "SSE", "SZSE", "DJI", "IXIC"]
+            # Default: HSI, SSE, SZSE, HS11 (Korea), DJI, IXIC, SPX, N225, UKX, DAX, ESTOXX50E
+            codes = ["HSI", "SSE", "SZSE", "HS11", "DJI", "IXIC", "SPX", "N225", "UKX", "DAX", "ESTOXX50E"]
             if params and params.get("codes"):
                 codes = [c.strip().upper() for c in str(params.get("codes")).split(",") if c.strip()]
 
@@ -1027,6 +1028,78 @@ def run_job(db: Session, job_name: str, params: dict | None = None) -> JobRun:
                         written += 1
                 except Exception as e:
                     errors["US_INDICES"] = str(e)
+
+            # 4) SPX, N225, UKX, DAX, ESTOXX50E, HS11 from Tencent quotes
+            global_codes = [c for c in ("SPX", "N225", "UKX", "DAX", "ESTOXX50E", "HS11") if c in codes]
+            if global_codes:
+                try:
+                    # Mapping for Tencent Quote symbols
+                    global_symbol_map = {
+                        "SPX": "usSPX",
+                        "N225": "jpN225",
+                        "UKX": "ukUKX",
+                        "DAX": "euDAX",
+                        "ESTOXX50E": "euESTOXX50E",
+                        "HS11": "krHS11",
+                    }
+                    currency_map = {
+                        "SPX": "USD",
+                        "N225": "JPY",
+                        "UKX": "GBP",
+                        "DAX": "EUR",
+                        "ESTOXX50E": "EUR",
+                        "HS11": "KRW",
+                    }
+                    timezone_map = {
+                        "SPX": "America/New_York",
+                        "N225": "Asia/Tokyo",
+                        "UKX": "Europe/London",
+                        "DAX": "Europe/Berlin",
+                        "ESTOXX50E": "Europe/Berlin",
+                        "HS11": "Asia/Seoul",
+                    }
+                    fetch_syms = [global_symbol_map[c] for c in global_codes]
+                    quotes = fetch_quotes(fetch_syms)
+                    # Tencent returns symbol with prefix, e.g. "usSPX", "jpN225"
+                    quote_by_code = {}
+                    for q in quotes:
+                        for code, sym in global_symbol_map.items():
+                            if q.symbol == sym:
+                                quote_by_code[code] = q
+                                break
+
+                    for code in global_codes:
+                        q = quote_by_code.get(code)
+                        if not q:
+                            errors[code] = "No quote returned"
+                            continue
+                        
+                        index_row = ensure_market_index(db, code)
+                        asof_dt = datetime.now(timezone.utc)
+                        if q.asof:
+                            try:
+                                asof_dt = datetime.strptime(q.asof, "%Y-%m-%d %H:%M:%S").replace(tzinfo=ZoneInfo(timezone_map.get(code, "UTC")))
+                            except Exception:
+                                pass
+
+                        upsert_realtime_snapshot(
+                            db,
+                            index_id=index_row.id,
+                            trade_date=asof_dt.date(),
+                            session=SessionType.FULL,
+                            last=int(round(q.last * 100)),
+                            change_points=int(round(q.change * 100)),
+                            change_pct=int(round(q.pct * 100)),
+                            turnover_amount=None,
+                            turnover_currency=currency_map.get(code, "USD"),
+                            data_updated_at=asof_dt,
+                            is_closed=False,
+                            source="TENCENT",
+                            payload={"raw": vars(q), "symbol": global_symbol_map[code]},
+                        )
+                        written += 1
+                except Exception as e:
+                    errors["GLOBAL_INDICES"] = str(e)
 
             status = "success" if not errors else ("partial" if written else "failed")
             summary = {"written": written, "errors": errors, "codes": codes, "force_source": force_source or None}
