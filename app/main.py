@@ -45,7 +45,29 @@ def _run_job_with_new_session(job_name: str) -> None:
 def _build_scheduler() -> BackgroundScheduler:
     scheduler = BackgroundScheduler(timezone=ZoneInfo(settings.TZ))
 
-    # Intraday snapshot refresh during trading hours (Mon-Fri, every 2 minutes, 09:00-17:00).
+    # Eastmoney realtime snapshot (stock/get, 11 indices), every 2 minutes in trading hours.
+    scheduler.add_job(
+        _run_job_with_new_session,
+        CronTrigger(day_of_week="mon-fri", hour="9-16", minute="*/2"),
+        kwargs={"job_name": "fetch_eastmoney_realtime_snapshot"},
+        id="fetch_eastmoney_realtime_snapshot_interval",
+        replace_existing=True,
+        coalesce=True,
+        max_instances=1,
+        misfire_grace_time=120,
+    )
+    scheduler.add_job(
+        _run_job_with_new_session,
+        CronTrigger(day_of_week="mon-fri", hour=17, minute=0),
+        kwargs={"job_name": "fetch_eastmoney_realtime_snapshot"},
+        id="fetch_eastmoney_realtime_snapshot_1700",
+        replace_existing=True,
+        coalesce=True,
+        max_instances=1,
+        misfire_grace_time=120,
+    )
+
+    # Existing intraday snapshot refresh during trading hours (Mon-Fri, every 2 minutes, 09:00-17:00).
     scheduler.add_job(
         _run_job_with_new_session,
         CronTrigger(day_of_week="mon-fri", hour="9-16", minute="*/2"),

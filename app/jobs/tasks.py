@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from datetime import date, time
 
 from app.config import settings
-from app.db.models import IndexKlineSourceRecord, IndexQuoteSourceRecord, JobRun, HsiQuoteFact, KlineInterval, SessionType, TurnoverSourceRecord, IndexQuoteHistory
+from app.db.models import IndexKlineSourceRecord, IndexQuoteSourceRecord, JobRun, HsiQuoteFact, KlineInterval, SessionType, TurnoverSourceRecord, IndexQuoteHistory, IndexRealtimeApiSnapshot
 from app.services.index_quote_resolver import (
     add_index_source_record,
     ensure_market_index,
@@ -28,6 +28,7 @@ from app.sources.tushare_index import TushareIndexDaily, daily_row_asof, fetch_i
 from app.sources.tencent_index import fetch_index_daily_history as fetch_tencent_index_daily_history
 from app.sources.eastmoney_index import fetch_minute_kline, aggregate_halfday_and_fullday_amount
 from app.sources.eastmoney_intraday import fetch_intraday_snapshot as fetch_eastmoney_intraday_snapshot
+from app.sources.eastmoney_realtime import default_codes as eastmoney_realtime_default_codes, fetch_realtime_snapshot as fetch_eastmoney_realtime_snapshot
 from app.sources.tushare_kline import fetch_index_kline
 from app.services.tencent_quote import fetch_quotes
 from app.services.trade_corridor import get_trade_corridor_highlights_mock
@@ -862,6 +863,52 @@ def run_job(db: Session, job_name: str, params: dict | None = None) -> JobRun:
 
             status = "success" if not errors else ("partial" if written else "failed")
             summary = {"written": written, "errors": errors, "interval_min": 5, "source": "EASTMONEY", "lookback_days": lookback_days}
+
+        elif job_name == "fetch_eastmoney_realtime_snapshot":
+
+            # Fetch realtime snapshot from Eastmoney stock/get for all 11 indices (or provided codes)
+            codes = eastmoney_realtime_default_codes()
+            if params and params.get("codes"):
+                codes = [c.strip().upper() for c in str(params.get("codes")).split(",") if c.strip()]
+
+            written = 0
+            errors: dict[str, str] = {}
+
+            for code in codes:
+                try:
+                    snap = fetch_eastmoney_realtime_snapshot(code=code, timeout_seconds=settings.HKEX_TIMEOUT_SECONDS)
+                    index_row = ensure_market_index(db, code)
+
+                    row = IndexRealtimeApiSnapshot(
+                        index_id=index_row.id,
+                        code=code,
+                        secid=snap.secid,
+                        trade_date=snap.asof.date(),
+                        session=SessionType.FULL,
+                        last=int(round(float(snap.last) * 100)) if snap.last is not None else None,
+                        change_points=int(round(float(snap.change) * 100)) if snap.change is not None else None,
+                        change_pct=int(round(float(snap.pct_chg) * 100)) if snap.pct_chg is not None else None,
+                        turnover_amount=int(round(float(snap.amount))) if snap.amount is not None else None,
+                        turnover_currency="HKD" if code == "HSI" else "CNY",
+                        volume=int(round(float(snap.volume))) if snap.volume is not None else None,
+                        data_updated_at=snap.asof,
+                        source="EASTMONEY_STOCK_GET",
+                        payload={"raw": snap.raw, "secid": snap.secid},
+                    )
+                    db.add(row)
+                    db.commit()
+                    written += 1
+                except Exception as e:
+                    db.rollback()
+                    errors[code] = str(e)
+
+            status = "success" if not errors else ("partial" if written else "failed")
+            summary = {
+                "source": "EASTMONEY_STOCK_GET",
+                "codes": codes,
+                "written": written,
+                "errors": errors,
+            }
 
         elif job_name == "fetch_intraday_snapshot":
 

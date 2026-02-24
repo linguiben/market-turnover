@@ -324,6 +324,42 @@ Index(
 )
 
 
+class IndexRealtimeApiSnapshot(Base):
+    __tablename__ = "index_realtime_api_snapshot"
+
+    id = Column(Integer, primary_key=True)
+    index_id = Column(Integer, ForeignKey("market_index.id", ondelete="CASCADE"), nullable=False)
+    code = Column(String(16), nullable=False)
+    secid = Column(String(32), nullable=False)
+
+    trade_date = Column(Date, nullable=False)
+    session = Column(Enum(SessionType, name="sessiontype", values_callable=_enum_values), nullable=False)
+
+    last = Column(Integer, nullable=True)  # *100
+    change_points = Column(Integer, nullable=True)  # *100
+    change_pct = Column(Integer, nullable=True)  # *100
+
+    turnover_amount = Column(BigInteger, nullable=True)
+    turnover_currency = Column(String(8), nullable=False, default="HKD")
+    volume = Column(BigInteger, nullable=True)
+
+    data_updated_at = Column(DateTime(timezone=True), nullable=False)
+    source = Column(String(32), nullable=False, default="EASTMONEY_STOCK_GET")
+    payload = Column(JSONB, nullable=True)
+
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+Index("ix_index_realtime_api_snapshot_date", IndexRealtimeApiSnapshot.trade_date.desc())
+Index("ix_index_realtime_api_snapshot_index", IndexRealtimeApiSnapshot.index_id)
+Index(
+    "ix_index_realtime_api_snapshot_latest",
+    IndexRealtimeApiSnapshot.index_id,
+    IndexRealtimeApiSnapshot.trade_date,
+    IndexRealtimeApiSnapshot.id.desc(),
+)
+
+
 class JobRun(Base):
     __tablename__ = "job_run"
 
