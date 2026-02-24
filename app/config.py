@@ -51,10 +51,11 @@ class Settings(BaseSettings):
     TUSHARE_PRO_TOKEN: str | None = None
     TUSHARE_PRO_BASE: str = "https://api.tushare.pro"
     TUSHARE_TIMEOUT_SECONDS: int = 15
+    DEFAULT_TUSHARE_INDEX_CODES: str = "HSI=HSI,SSE=000001.SH,SZSE=399001.SZ,DJI=DJI,IXIC=IXIC,SPX=SPX,FTSE=FTSE,GDAXI=GDAXI,N225=N225,KS11=KS11,CSX5P=CSX5P"
     # Format: CODE=TUSHARE_TS_CODE (global indices without dot use index_global API, cn indices with .SH/.SZ use index_daily)
     # CN indices: SSE=000001.SH, SZSE=399001.SZ
     # Global indices (index_global): HSI, DJI, IXIC, SPX, FTSE, GDAXI, N225, KS11, CSX5P
-    TUSHARE_INDEX_CODES: str = "HSI=HSI.HI,SSE=000001.SH,SZSE=399001.SZ,DJI=DJI,IXIC=IXIC,SPX=SPX,FTSE=FTSE,GDAXI=GDAXI,N225=N225,KS11=KS11,CSX5P=CSX5P"
+    TUSHARE_INDEX_CODES: str = "HSI=HSI,SSE=000001.SH,SZSE=399001.SZ,DJI=DJI,IXIC=IXIC,SPX=SPX,FTSE=FTSE,GDAXI=GDAXI,N225=N225,KS11=KS11,CSX5P=CSX5P"
 
     # AASTOCKS
     AASTOCKS_TIMEOUT_SECONDS: int = 10
@@ -82,9 +83,10 @@ class Settings(BaseSettings):
             "DATABASE_URL is not set. Provide DATABASE_URL or POSTGRES_DB/POSTGRES_USER/POSTGRES_PASSWORD/POSTGRES_HOST/POSTGRES_PORT."
         )
 
-    def tushare_index_map(self) -> dict[str, str]:
+    @staticmethod
+    def _parse_index_code_map(raw_value: str) -> dict[str, str]:
         result: dict[str, str] = {}
-        for part in self.TUSHARE_INDEX_CODES.split(","):
+        for part in raw_value.split(","):
             part = part.strip()
             if not part or "=" not in part:
                 continue
@@ -93,6 +95,12 @@ class Settings(BaseSettings):
             ts_code = ts_code.strip().upper()
             if code and ts_code:
                 result[code] = ts_code
+        return result
+
+    def tushare_index_map(self) -> dict[str, str]:
+        # Anti-regression: keep a complete default set even if .env is partially configured.
+        result = self._parse_index_code_map(self.DEFAULT_TUSHARE_INDEX_CODES)
+        result.update(self._parse_index_code_map(self.TUSHARE_INDEX_CODES))
         return result
 
 

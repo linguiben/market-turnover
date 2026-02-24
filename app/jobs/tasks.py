@@ -15,6 +15,7 @@ from app.db.models import IndexKlineSourceRecord, IndexQuoteSourceRecord, JobRun
 from app.services.index_quote_resolver import (
     add_index_source_record,
     ensure_market_index,
+    normalize_index_code,
     upsert_index_history_from_sources,
     upsert_realtime_snapshot,
 )
@@ -1068,12 +1069,13 @@ def run_job(db: Session, job_name: str, params: dict | None = None) -> JobRun:
                                 quote_by_code[code] = q
                                 break
 
+                    missing_codes: list[str] = []
                     for code in global_codes:
                         q = quote_by_code.get(code)
                         if not q:
-                            errors[code] = "No quote returned"
+                            missing_codes.append(code)
                             continue
-                        
+
                         index_row = ensure_market_index(db, code)
                         asof_dt = datetime.now(timezone.utc)
                         if q.asof:
@@ -1098,6 +1100,93 @@ def run_job(db: Session, job_name: str, params: dict | None = None) -> JobRun:
                             payload={"raw": vars(q), "symbol": global_symbol_map[code]},
                         )
                         written += 1
+
+                    # Tencent does not reliably return all global symbols.
+                    # Fallback to Tushare index_global for missing codes.
+                    if missing_codes:
+                        token = (settings.TUSHARE_PRO_TOKEN or "").strip()
+                        if not token:
+                            for code in missing_codes:
+                                errors[code] = "No quote returned from Tencent; TUSHARE_PRO_TOKEN is empty"
+                        else:
+                            tushare_defaults = {
+                                "HSI": "HSI",
+                                "SSE": "000001.SH",
+                                "SZSE": "399001.SZ",
+                                "DJI": "DJI",
+                                "IXIC": "IXIC",
+                                "SPX": "SPX",
+                                "N225": "N225",
+                                "FTSE": "FTSE",
+                                "GDAXI": "GDAXI",
+                                "CSX5P": "CSX5P",
+                                "KS11": "KS11",
+                            }
+                            cfg_map = settings.tushare_index_map()
+                            for k, v in tushare_defaults.items():
+                                cfg_map.setdefault(k, v)
+
+                            display_to_tushare = {
+                                "HS11": "KS11",
+                                "UKX": "FTSE",
+                                "DAX": "GDAXI",
+                                "ESTOXX50E": "CSX5P",
+                            }
+                            code_currency = {
+                                "SPX": "USD",
+                                "N225": "JPY",
+                                "UKX": "GBP",
+                                "DAX": "EUR",
+                                "ESTOXX50E": "EUR",
+                                "HS11": "KRW",
+                            }
+
+                            fetch_map: dict[str, str] = {}
+                            request_map: dict[str, str] = {}
+                            for code in missing_codes:
+                                display_code = normalize_index_code(code)
+                                ts_key = display_to_tushare.get(display_code, display_code)
+                                ts_code = cfg_map.get(ts_key)
+                                if not ts_code:
+                                    errors[display_code] = f"Missing Tushare mapping for {ts_key}"
+                                    continue
+                                fetch_map[ts_key] = ts_code
+                                request_map[ts_key] = display_code
+
+                            if fetch_map:
+                                try:
+                                    rows = fetch_latest_index_daily(
+                                        token=token,
+                                        index_map=fetch_map,
+                                        base_url=settings.TUSHARE_PRO_BASE,
+                                        timeout_seconds=settings.TUSHARE_TIMEOUT_SECONDS,
+                                    )
+                                    row_by_code = {r.code: r for r in rows}
+                                    for ts_key, display_code in request_map.items():
+                                        row = row_by_code.get(ts_key)
+                                        if row is None:
+                                            errors[display_code] = "No quote returned from Tencent/Tushare"
+                                            continue
+                                        index_row = ensure_market_index(db, display_code)
+                                        upsert_realtime_snapshot(
+                                            db,
+                                            index_id=index_row.id,
+                                            trade_date=row.trade_date,
+                                            session=SessionType.FULL,
+                                            last=int(round(float(row.close) * 100)),
+                                            change_points=int(round(float(row.change) * 100)) if row.change is not None else None,
+                                            change_pct=int(round(float(row.pct_chg) * 100)) if row.pct_chg is not None else None,
+                                            turnover_amount=row.turnover_amount,
+                                            turnover_currency=code_currency.get(display_code, index_row.currency),
+                                            data_updated_at=daily_row_asof(row.trade_date),
+                                            is_closed=True,
+                                            source="TUSHARE",
+                                            payload={"ts_code": row.ts_code, "fallback": "tencent_missing"},
+                                        )
+                                        written += 1
+                                except Exception as e:
+                                    for code in missing_codes:
+                                        errors[code] = f"Tushare fallback failed: {e}"
                 except Exception as e:
                     errors["GLOBAL_INDICES"] = str(e)
 

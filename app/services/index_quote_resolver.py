@@ -34,9 +34,22 @@ INDEX_META = {
     "HS11": {"name_zh": "韩国综合指数", "name_en": "KOSPI", "market": "KR", "exchange": "KRX", "currency": "KRW", "timezone": "Asia/Seoul", "display_order": 35},
 }
 
+CODE_ALIASES = {
+    # Tushare index_global codes -> dashboard display codes
+    "KS11": "HS11",
+    "FTSE": "UKX",
+    "GDAXI": "DAX",
+    "CSX5P": "ESTOXX50E",
+}
+
+
+def normalize_index_code(code: str) -> str:
+    upper_code = code.upper()
+    return CODE_ALIASES.get(upper_code, upper_code)
+
 
 def ensure_market_index(db: Session, code: str) -> MarketIndex:
-    upper_code = code.upper()
+    upper_code = normalize_index_code(code)
     existing = db.query(MarketIndex).filter(MarketIndex.code == upper_code).one_or_none()
     if existing is not None:
         return existing
