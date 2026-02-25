@@ -18,6 +18,7 @@ from app.db.session import get_db
 from app.db.models import (
     AppUser,
     HsiQuoteFact,
+    InsightSnapshot,
     IndexQuoteHistory,
     IndexRealtimeSnapshot,
     IndexRealtimeApiSnapshot,
@@ -31,6 +32,7 @@ from app.jobs.tasks import run_job
 from app.services.tencent_quote import fetch_quotes
 from app.services.trade_corridor import get_trade_corridor_highlights_mock
 from app.services.app_cache import get_cache, upsert_cache
+from app.services.insight_service import get_fallback_insight_text, get_latest_insight_snapshot
 from app.web.activity_counter import get_global_visited_count, increment_activity_counter
 from app.web.auth import (
     build_login_redirect,
@@ -59,6 +61,13 @@ INDEX_CODES = ("HSI", "SSE", "SZSE")
 INDEX_FALLBACK_NAMES = {"HSI": "恒生指数", "SSE": "上证指数", "SZSE": "深证成指"}
 INDEX_FALLBACK_NAMES_EN = {"HSI": "Hang Seng Index", "SSE": "Shanghai Composite", "SZSE": "Shenzhen Component"}
 AVAILABLE_JOBS: tuple[dict, ...] = (
+    {
+        "name": "zhi_insights_job",
+        "label": "生成智能分析Insights",
+        "description": "聚合 HSI/SSE/SZSE 当前快照并调用 LLM（OpenAI/Gemini）生成中英文 Insights，失败则写入固定兜底文案。",
+        "schedule": "工作日 09:30-17:00 每30分钟",
+        "targets": ["insight_snapshot", "insight_sys_prompt"],
+    },
     {
         "name": "fetch_am",
         "label": "午盘抓取",
@@ -704,30 +713,9 @@ def _dashboard_impl(
     hsi_ratio = ratio_to_peak.get("HSI")
     sse_ratio = ratio_to_peak.get("SSE")
     szse_ratio = ratio_to_peak.get("SZSE")
-
-    if lang == "en":
-        if hsi_ratio is not None:
-            insight_text = (
-                f"Today’s Hang Seng Index full-day turnover is about {hsi_ratio}% of its recent peak; "
-                f"Shanghai Composite is about {sse_ratio if sse_ratio is not None else '--'}%; "
-                f"Shenzhen Component is about {szse_ratio if szse_ratio is not None else '--'}%. "
-                "If the index level strengthens and turnover keeps expanding, the trend is more likely to continue; "
-                "otherwise watch for price-volume divergence."
-            )
-        else:
-            insight_text = (
-                "Not enough historical data to generate the analysis yet. "
-                "Please run backfill_tushare_index, or run fetch_tushare_index / fetch_full to sync data."
-            )
-    else:
-        insight_text = (
-            f"当前恒生指数全日成交量约为近期峰值的 {hsi_ratio}% ，"
-            f"上证指数约为 {sse_ratio if sse_ratio is not None else '--'}% ，"
-            f"深证成指约为 {szse_ratio if szse_ratio is not None else '--'}% 。"
-            "若指数点位走强且成交量继续放大，趋势延续概率更高；反之需关注量价背离。"
-            if hsi_ratio is not None
-            else "暂无足够历史数据生成量价分析，请先运行 backfill_tushare_index 或 fetch_tushare_index / fetch_full 同步数据。"
-        )
+    insight_lang = "en" if lang == "en" else "zh"
+    latest_insight = get_latest_insight_snapshot(db, lang=insight_lang)
+    insight_text = latest_insight.response if latest_insight is not None else get_fallback_insight_text(insight_lang)
 
     # Global market quotes from database (consistent with top cards)
     global_quotes = []
@@ -923,6 +911,41 @@ def jobs(
             latest_run_by_name=latest_run_by_name,
         ),
     )
+
+
+@router.get("/api/insights/latest")
+def api_latest_insight(
+    lang: str = "zh",
+    db: Session = Depends(get_db),
+    current_user: AppUser | None = Depends(get_current_user),
+):
+    if current_user is None:
+        return {"ok": False, "error": "unauthorized"}
+
+    normalized_lang = "en" if str(lang).strip().lower() == "en" else "zh"
+    row: InsightSnapshot | None = get_latest_insight_snapshot(db, lang=normalized_lang)
+    if row is None:
+        return {
+            "ok": True,
+            "lang": normalized_lang,
+            "status": "fallback",
+            "insight_text": get_fallback_insight_text(normalized_lang),
+            "provider": None,
+            "model": None,
+            "asof_ts": None,
+            "trade_date": None,
+        }
+    return {
+        "ok": True,
+        "lang": row.lang,
+        "status": row.status,
+        "insight_text": row.response,
+        "provider": row.provider,
+        "model": row.model,
+        "asof_ts": row.asof_ts.isoformat() if row.asof_ts is not None else None,
+        "trade_date": row.trade_date.isoformat() if row.trade_date is not None else None,
+        "created_at": row.created_at.isoformat() if row.created_at is not None else None,
+    }
 
 
 @router.post("/api/jobs/run")

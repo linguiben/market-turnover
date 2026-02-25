@@ -35,6 +35,14 @@ from app.sources.tushare_kline import fetch_index_kline
 from app.services.tencent_quote import fetch_quotes
 from app.services.trade_corridor import get_trade_corridor_highlights_mock
 from app.services.app_cache import upsert_cache
+from app.services.insight_service import (
+    build_insight_snapshot_payload,
+    call_insight_llm,
+    compose_user_prompt,
+    create_insight_snapshot_row,
+    get_active_system_prompt,
+    get_fallback_insight_text,
+)
 
 
 def _persist_tushare_rows(
@@ -626,6 +634,76 @@ def run_job(db: Session, job_name: str, params: dict | None = None) -> JobRun:
 
         elif job_name == "refresh_home_trade_corridor":
             status, summary = _refresh_home_trade_corridor(db)
+
+        elif job_name == "zhi_insights_job":
+            payload, trade_date, asof_ts = build_insight_snapshot_payload(db)
+            detail: dict[str, dict] = {}
+            overall_status = "success"
+
+            for lang in ("zh", "en"):
+                prompt_row = get_active_system_prompt(db, lang=lang)
+                system_prompt = (
+                    prompt_row.system_prompt
+                    if prompt_row is not None
+                    else (
+                        "你是指数系统开发与运维分析助手。"
+                        if lang == "zh"
+                        else "You are an index system engineering and operations insight assistant."
+                    )
+                )
+                user_prompt = compose_user_prompt(lang=lang, payload=payload)
+                final_prompt = f"[SYSTEM]\n{system_prompt}\n\n[USER]\n{user_prompt}"
+
+                provider = (settings.INSIGHT_LLM_PROVIDER or "openai").strip().lower()
+                model = (
+                    settings.INSIGHT_OPENAI_MODEL
+                    if provider == "openai"
+                    else settings.INSIGHT_GEMINI_MODEL
+                )
+                status_lang = "success"
+                error_message = None
+                try:
+                    response_text, provider, model = call_insight_llm(
+                        system_prompt=system_prompt,
+                        user_prompt=user_prompt,
+                    )
+                    if not response_text:
+                        raise RuntimeError("LLM returned empty response")
+                except Exception as e:
+                    response_text = get_fallback_insight_text(lang)
+                    status_lang = "fallback"
+                    error_message = str(e)
+                    if overall_status == "success":
+                        overall_status = "partial"
+
+                row = create_insight_snapshot_row(
+                    db,
+                    lang=lang,
+                    payload=payload,
+                    trade_date=trade_date,
+                    asof_ts=asof_ts,
+                    prompt=final_prompt,
+                    response=response_text,
+                    provider=provider,
+                    model=model,
+                    status=status_lang,
+                    error_message=error_message,
+                )
+                detail[lang] = {
+                    "id": row.id,
+                    "status": status_lang,
+                    "provider": provider,
+                    "model": model,
+                    "error": error_message,
+                }
+
+            status = overall_status
+            summary = {
+                "trade_date": str(trade_date),
+                "asof_ts": asof_ts.isoformat(),
+                "peak_policy": "all_time",
+                "langs": detail,
+            }
 
         elif job_name == "fetch_am":
             # Use HK timezone trading date when possible; fallback to local date.

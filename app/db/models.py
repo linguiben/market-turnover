@@ -384,6 +384,60 @@ class AppCache(Base):
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
+class InsightSysPrompt(Base):
+    __tablename__ = "insight_sys_prompt"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    lang = Column(String(8), nullable=False)
+    prompt_key = Column(String(64), nullable=False, default="market_insight")
+    version = Column(String(32), nullable=False, default="v1")
+    system_prompt = Column(Text, nullable=False)
+    is_active = Column(Boolean, nullable=False, default=True)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+
+Index(
+    "ix_insight_sys_prompt_lang_key_active",
+    InsightSysPrompt.lang,
+    InsightSysPrompt.prompt_key,
+    InsightSysPrompt.is_active,
+    InsightSysPrompt.updated_at.desc(),
+)
+Index(
+    "uq_insight_sys_prompt_active_one",
+    InsightSysPrompt.lang,
+    InsightSysPrompt.prompt_key,
+    unique=True,
+    postgresql_where=InsightSysPrompt.is_active.is_(True),
+)
+
+
+class InsightSnapshot(Base):
+    __tablename__ = "insight_snapshot"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    trade_date = Column(Date, nullable=False)
+    asof_ts = Column(DateTime(timezone=True), nullable=False)
+    lang = Column(String(8), nullable=False)
+    peak_policy = Column(String(32), nullable=False, default="all_time")
+    provider = Column(String(16), nullable=False)
+    model = Column(String(64), nullable=False)
+    prompt_version = Column(String(32), nullable=False, default="v1")
+    payload = Column(JSONB, nullable=False)
+    prompt = Column(Text, nullable=False)
+    response = Column(Text, nullable=False)
+    status = Column(String(16), nullable=False, default="success")
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+Index("ix_insight_snapshot_asof_desc", InsightSnapshot.asof_ts.desc())
+Index("ix_insight_snapshot_trade_date", InsightSnapshot.trade_date.desc())
+Index("ix_insight_snapshot_lang_created_desc", InsightSnapshot.lang, InsightSnapshot.created_at.desc())
+
+
 class AppUser(Base):
     __tablename__ = "app_user"
     __table_args__ = (

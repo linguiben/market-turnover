@@ -67,6 +67,20 @@ class Settings(BaseSettings):
     # Example: socks5://127.0.0.1:1080
     EASTMONEY_PROXY_URL: str | None = None
 
+    # Insight generation
+    INSIGHT_LLM_PROVIDER: str = "openai"  # openai / gemini
+    INSIGHT_LLM_TIMEOUT_SECONDS: int = 20
+    INSIGHT_LLM_TEMPERATURE: float = 0.2
+    INSIGHT_LLM_MAX_TOKENS: int = 300
+
+    INSIGHT_OPENAI_API_KEY: str | None = None
+    INSIGHT_OPENAI_MODEL: str = "gpt-4.1-mini"
+    INSIGHT_OPENAI_BASE_URL: str = "https://api.openai.com/v1"
+
+    INSIGHT_GEMINI_API_KEY: str | None = None
+    INSIGHT_GEMINI_MODEL: str = "gemini-2.0-flash"
+    INSIGHT_GEMINI_BASE_URL: str = "https://generativelanguage.googleapis.com/v1beta"
+
     @model_validator(mode="after")
     def resolve_database_url(self) -> Settings:
         raw_url = (self.DATABASE_URL or "").strip()

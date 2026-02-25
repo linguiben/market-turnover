@@ -127,7 +127,7 @@
         </span>
       </h2>
       <div class="grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
-        <p class="md:col-span-2 text-slate-400 leading-relaxed">{{ insight_text }}</p>
+        <p id="insightText" class="md:col-span-2 text-slate-400 leading-relaxed">{{ insight_text }}</p>
         <div class="flex gap-10 justify-end">
           <div class="text-center">
             <div class="text-2xl font-black text-blue-400">{{ hsi_ratio if hsi_ratio is not none else '--' }}%</div>
@@ -381,6 +381,21 @@
         chartInstances.forEach(item => item.chart.setOption(getOption(item.data, isLightTheme()), true));
       });
     }
+
+    (async () => {
+      try {
+        const base = {{ base | tojson }};
+        const url = `${base}/api/insights/latest?lang=en`;
+        const resp = await fetch(url, { credentials: "same-origin" });
+        if (!resp.ok) return;
+        const data = await resp.json();
+        const node = document.getElementById("insightText");
+        if (!node) return;
+        if (data && data.ok && data.insight_text) {
+          node.textContent = data.insight_text;
+        }
+      } catch (_) {}
+    })();
 
     // Auto-refresh every 60 seconds
     setTimeout(() => {

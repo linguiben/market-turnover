@@ -131,6 +131,28 @@ def _build_scheduler() -> BackgroundScheduler:
         max_instances=1,
     )
 
+    # Insight generation (Mon-Fri, 09:30-17:00, every 30 minutes).
+    scheduler.add_job(
+        _run_job_with_new_session,
+        CronTrigger(day_of_week="mon-fri", hour="9-16", minute="0,30"),
+        kwargs={"job_name": "zhi_insights_job"},
+        id="zhi_insights_job_interval",
+        replace_existing=True,
+        coalesce=True,
+        max_instances=1,
+        misfire_grace_time=120,
+    )
+    scheduler.add_job(
+        _run_job_with_new_session,
+        CronTrigger(day_of_week="mon-fri", hour=17, minute=0),
+        kwargs={"job_name": "zhi_insights_job"},
+        id="zhi_insights_job_1700",
+        replace_existing=True,
+        coalesce=True,
+        max_instances=1,
+        misfire_grace_time=120,
+    )
+
     # Homepage widgets refresh (every 5 minutes).
     scheduler.add_job(
         _run_job_with_new_session,
