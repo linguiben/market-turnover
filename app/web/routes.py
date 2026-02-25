@@ -62,14 +62,14 @@ AVAILABLE_JOBS: tuple[dict, ...] = (
     {
         "name": "fetch_am",
         "label": "午盘抓取",
-        "description": "抓取午盘成交额和 HSI 快照；同时尝试同步最新 Tushare 指数。",
-        "schedule": "工作日 11:35",
+        "description": "抓取午盘成交额和 HSI 快照（AASTOCKS）；若抓取失败则不写入 MOCK 数据；同时尝试同步最新 Tushare 指数。",
+        "schedule": "工作日 11:35、12:08",
         "targets": ["turnover_source_record", "turnover_fact", "hsi_quote_fact"],
     },
     {
         "name": "fetch_full",
         "label": "全日抓取",
-        "description": "抓取全日成交额和 HSI 快照；同时尝试同步最新 Tushare 指数。",
+        "description": "抓取全日成交额和 HSI 快照（AASTOCKS）；若抓取失败则不写入 MOCK 数据；同时尝试同步最新 Tushare 指数。",
         "schedule": "工作日 16:10",
         "targets": ["turnover_source_record", "turnover_fact", "hsi_quote_fact"],
     },
@@ -218,7 +218,7 @@ def _today_realtime_snapshot(
         q = q.filter(IndexRealtimeSnapshot.session == session)
     if updated_before is not None:
         q = q.filter(IndexRealtimeSnapshot.data_updated_at <= updated_before)
-    return q.order_by(IndexRealtimeSnapshot.id.desc()).first()
+    return q.order_by(IndexRealtimeSnapshot.data_updated_at.desc(), IndexRealtimeSnapshot.id.desc()).first()
 
 
 def _latest_api_snapshot(
@@ -235,7 +235,22 @@ def _latest_api_snapshot(
     )
     if session is not None:
         q = q.filter(IndexRealtimeApiSnapshot.session == session)
-    return q.order_by(IndexRealtimeApiSnapshot.id.desc()).first()
+    return q.order_by(IndexRealtimeApiSnapshot.data_updated_at.desc(), IndexRealtimeApiSnapshot.id.desc()).first()
+
+
+def _order_hsi_realtime_by_data_updated_at(
+    snap_realtime: IndexRealtimeSnapshot | None,
+    snap_api: IndexRealtimeApiSnapshot | None,
+) -> tuple[IndexRealtimeSnapshot | IndexRealtimeApiSnapshot | None, IndexRealtimeSnapshot | IndexRealtimeApiSnapshot | None]:
+    if snap_realtime is None and snap_api is None:
+        return None, None
+    if snap_realtime is None:
+        return snap_api, None
+    if snap_api is None:
+        return snap_realtime, None
+    if snap_api.data_updated_at > snap_realtime.data_updated_at:
+        return snap_api, snap_realtime
+    return snap_realtime, snap_api
 
 
 def _turnover_series(
@@ -420,6 +435,8 @@ def _dashboard_impl(
         snap_full = None
         snap_am = None
         snap_api_full = None
+        hsi_primary_full = None
+        hsi_secondary_full = None
 
         if index_row is not None:
             full = _latest_index_history(db, index_id=index_row.id, session=SessionType.FULL)
@@ -429,6 +446,7 @@ def _dashboard_impl(
             snap_full = _today_realtime_snapshot(db, index_id=index_row.id, today=today, session=SessionType.FULL)
             if code == "HSI":
                 snap_api_full = _latest_api_snapshot(db, index_id=index_row.id, today=today, session=SessionType.FULL)
+                hsi_primary_full, hsi_secondary_full = _order_hsi_realtime_by_data_updated_at(snap_full, snap_api_full)
 
             # AM turnover: latest snapshot updated at/before 12:30.
             # - CN indices: we persist explicit session=AM rows.
@@ -452,15 +470,25 @@ def _dashboard_impl(
 
         # "today" turnover logic:
         # AM: snapshot (<=12:30) -> history latest AM
-        # FULL: (HSI) Eastmoney stock/get snapshot -> intraday snapshot -> history latest FULL -> (HSI) turnover_fact latest FULL
+        # FULL: (HSI) newest(data_updated_at) between realtime_snapshot/api_snapshot -> the other realtime source -> history latest FULL -> turnover_fact latest FULL
         am_turnover = (
             snap_am.turnover_amount
             if snap_am is not None and snap_am.turnover_amount is not None
             else (am.turnover_amount if am is not None else None)
         )
         full_turnover = (
-            snap_api_full.turnover_amount
-            if code == "HSI" and snap_api_full is not None and snap_api_full.turnover_amount is not None
+            hsi_primary_full.turnover_amount
+            if code == "HSI" and hsi_primary_full is not None and hsi_primary_full.turnover_amount is not None
+            else (
+                hsi_secondary_full.turnover_amount
+                if code == "HSI" and hsi_secondary_full is not None and hsi_secondary_full.turnover_amount is not None
+                else (
+                    snap_full.turnover_amount
+                    if snap_full is not None and snap_full.turnover_amount is not None
+                    else (full.turnover_amount if full is not None else None)
+                )
+            )
+            if code == "HSI"
             else (
                 snap_full.turnover_amount
                 if snap_full is not None and snap_full.turnover_amount is not None
@@ -499,7 +527,7 @@ def _dashboard_impl(
                 .filter(IndexRealtimeSnapshot.index_id == index_row.id)
                 .filter(IndexRealtimeSnapshot.trade_date == y_date)
                 .filter(IndexRealtimeSnapshot.session == SessionType.AM)
-                .order_by(IndexRealtimeSnapshot.id.desc())
+                .order_by(IndexRealtimeSnapshot.data_updated_at.desc(), IndexRealtimeSnapshot.id.desc())
                 .first()
             )
             if y_am_snap is None:
@@ -510,7 +538,7 @@ def _dashboard_impl(
                     .filter(IndexRealtimeSnapshot.trade_date == y_date)
                     .filter(IndexRealtimeSnapshot.session == SessionType.FULL)
                     .filter(IndexRealtimeSnapshot.data_updated_at <= y_cutoff)
-                    .order_by(IndexRealtimeSnapshot.id.desc())
+                    .order_by(IndexRealtimeSnapshot.data_updated_at.desc(), IndexRealtimeSnapshot.id.desc())
                     .first()
                 )
             if y_am_snap is not None and y_am_snap.turnover_amount is not None:
@@ -519,15 +547,39 @@ def _dashboard_impl(
         points_series = _close_points_series(db, index_id=index_row.id) if index_row is not None else []
 
         # "latest price" on homepage: today's realtime snapshot first; fallback to history.
-        full_last = snap_full.last if snap_full is not None else (full.last if full is not None else None)
+        full_last = (
+            hsi_primary_full.last
+            if code == "HSI" and hsi_primary_full is not None and hsi_primary_full.last is not None
+            else (
+                hsi_secondary_full.last
+                if code == "HSI" and hsi_secondary_full is not None and hsi_secondary_full.last is not None
+                else (snap_full.last if snap_full is not None else (full.last if full is not None else None))
+            )
+        )
         price_change_pct = (
-            snap_full.change_pct
-            if snap_full is not None and snap_full.change_pct is not None
-            else (full.change_pct if full is not None else None)
+            hsi_primary_full.change_pct
+            if code == "HSI" and hsi_primary_full is not None and hsi_primary_full.change_pct is not None
+            else (
+                hsi_secondary_full.change_pct
+                if code == "HSI" and hsi_secondary_full is not None and hsi_secondary_full.change_pct is not None
+                else (
+                    snap_full.change_pct
+                    if snap_full is not None and snap_full.change_pct is not None
+                    else (full.change_pct if full is not None else None)
+                )
+            )
         )
         updated_at = (
-            snap_api_full.data_updated_at
-            if code == "HSI" and snap_api_full is not None
+            (
+                hsi_primary_full.data_updated_at
+                if hsi_primary_full is not None
+                else (
+                    hsi_secondary_full.data_updated_at
+                    if hsi_secondary_full is not None
+                    else (full.asof_ts if full is not None else None)
+                )
+            )
+            if code == "HSI"
             else (
                 snap_full.data_updated_at
                 if snap_full is not None

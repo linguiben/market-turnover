@@ -632,6 +632,7 @@ def run_job(db: Session, job_name: str, params: dict | None = None) -> JobRun:
             today = date.today()
 
             # 1) Turnover (best-effort)
+            t_error: str | None = None
             try:
                 mid = fetch_midday_turnover()
                 t_source = "AASTOCKS"
@@ -640,29 +641,28 @@ def run_job(db: Session, job_name: str, params: dict | None = None) -> JobRun:
                 if asof is not None:
                     today = asof.date()
                 t_payload = {"raw": mid.raw_turnover_text}
+                rec = TurnoverSourceRecord(
+                    trade_date=today,
+                    session=SessionType.AM,
+                    source=t_source,
+                    turnover_hkd=turnover,
+                    asof_ts=asof,
+                    payload=t_payload,
+                    ok=True,
+                )
+                db.add(rec)
+                db.commit()
+                upsert_fact_from_sources(db, today, SessionType.AM)
                 t_status = "success"
             except Exception as e:
-                # POC fallback: generate a visible data point even when scraping fails.
-                t_source = "MOCK"
-                turnover = 133_823_000_000  # 1338.23 億（示例）
+                t_source = "AASTOCKS"
+                turnover = None
                 asof = None
-                t_payload = {"fallback": True, "error": str(e)}
+                t_error = str(e)
                 t_status = "partial"
 
-            rec = TurnoverSourceRecord(
-                trade_date=today,
-                session=SessionType.AM,
-                source=t_source,
-                turnover_hkd=turnover,
-                asof_ts=asof,
-                payload=t_payload,
-                ok=True,
-            )
-            db.add(rec)
-            db.commit()
-            upsert_fact_from_sources(db, today, SessionType.AM)
-
             # 2) HSI price snapshot
+            h_error: str | None = None
             try:
                 snap = fetch_hsi_snapshot()
                 if snap.asof is not None:
@@ -683,6 +683,7 @@ def run_job(db: Session, job_name: str, params: dict | None = None) -> JobRun:
                 h_status = "success"
             except Exception as e:
                 h_status = "partial"
+                h_error = str(e)
                 # do not fail the whole job
 
             status = "success" if (t_status == "success" and h_status == "success") else "partial"
@@ -694,7 +695,9 @@ def run_job(db: Session, job_name: str, params: dict | None = None) -> JobRun:
                 "turnover_hkd": turnover,
                 "turnover_source": t_source,
                 "turnover_asof": str(asof),
+                "turnover_error": t_error,
                 "hsi_status": h_status,
+                "hsi_error": h_error,
                 "tushare": ts_summary,
             }
 
@@ -756,6 +759,7 @@ def run_job(db: Session, job_name: str, params: dict | None = None) -> JobRun:
 
             # For POC: use the same AASTOCKS index feed turnover as end-of-day turnover proxy.
             # (Not official; HKEX backfill remains the official baseline when available.)
+            fetch_error: str | None = None
             try:
                 snap = fetch_hsi_snapshot()
                 turnover = snap.turnover_hkd
@@ -766,27 +770,29 @@ def run_job(db: Session, job_name: str, params: dict | None = None) -> JobRun:
                 payload = {"raw": snap.raw}
                 status = "success"
             except Exception as e:
-                source = "MOCK"
-                turnover = 233_823_000_000
+                source = "AASTOCKS"
+                turnover = None
                 asof = None
-                payload = {"fallback": True, "error": str(e)}
+                payload = None
+                fetch_error = str(e)
                 status = "partial"
 
-            rec = TurnoverSourceRecord(
-                trade_date=today,
-                session=SessionType.FULL,
-                source=source,
-                turnover_hkd=turnover,
-                asof_ts=asof,
-                payload=payload,
-                ok=True,
-            )
-            db.add(rec)
-            db.commit()
-            upsert_fact_from_sources(db, today, SessionType.FULL)
+            if turnover is not None:
+                rec = TurnoverSourceRecord(
+                    trade_date=today,
+                    session=SessionType.FULL,
+                    source=source,
+                    turnover_hkd=turnover,
+                    asof_ts=asof,
+                    payload=payload,
+                    ok=True,
+                )
+                db.add(rec)
+                db.commit()
+                upsert_fact_from_sources(db, today, SessionType.FULL)
 
             # HSI price snapshot (close-ish)
-            if source == "AASTOCKS":
+            if source == "AASTOCKS" and turnover is not None:
                 try:
                     hsi = HsiQuoteFact(
                         trade_date=today,
@@ -807,7 +813,14 @@ def run_job(db: Session, job_name: str, params: dict | None = None) -> JobRun:
             ts_status, ts_summary = _sync_tushare_index_quotes(db)
             if ts_status == "partial" and status == "success":
                 status = "partial"
-            summary = {"today": str(today), "turnover_hkd": turnover, "source": source, "asof": str(asof), "tushare": ts_summary}
+            summary = {
+                "today": str(today),
+                "turnover_hkd": turnover,
+                "source": source,
+                "asof": str(asof),
+                "fetch_error": fetch_error,
+                "tushare": ts_summary,
+            }
 
         elif job_name == "fetch_tushare_index":
             ts_status, ts_summary = _sync_tushare_index_quotes(db)
