@@ -128,18 +128,24 @@
       </h2>
       <div class="grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
         <p id="insightText" class="md:col-span-2 text-slate-400 leading-relaxed">{{ insight_text }}</p>
-        <div class="flex gap-10 justify-end">
-          <div class="text-center">
-            <div class="text-2xl font-black text-blue-400">{{ hsi_ratio if hsi_ratio is not none else '--' }}%</div>
-            <div class="text-[10px] text-slate-500 tracking-tighter">HSI vs PEAK</div>
+        <div class="flex flex-col items-center justify-center gap-6">
+          <div class="text-center text-black leading-tight">
+            <div class="text-2xl font-bold">Market Turnover</div>
+            <div class="text-xl font-bold">(Today vs Peak)</div>
           </div>
-          <div class="text-center">
-            <div class="text-2xl font-black text-emerald-400">{{ sse_ratio if sse_ratio is not none else '--' }}%</div>
-            <div class="text-[10px] text-slate-500 tracking-tighter">SSE vs PEAK</div>
-          </div>
-          <div class="text-center">
-            <div class="text-2xl font-black text-fuchsia-400">{{ szse_ratio if szse_ratio is not none else '--' }}%</div>
-            <div class="text-[10px] text-slate-500 tracking-tighter">SZSE vs PEAK</div>
+          <div class="flex gap-8 lg:gap-10 justify-center">
+            <div class="text-center">
+              <div class="text-5xl font-black text-blue-400">{{ hsi_ratio if hsi_ratio is not none else '--' }}%</div>
+              <div class="text-xl text-slate-500 tracking-tight">HSI</div>
+            </div>
+            <div class="text-center">
+              <div class="text-5xl font-black text-emerald-400">{{ sse_ratio if sse_ratio is not none else '--' }}%</div>
+              <div class="text-xl text-slate-500 tracking-tight">SSE</div>
+            </div>
+            <div class="text-center">
+              <div class="text-5xl font-black text-fuchsia-400">{{ szse_ratio if szse_ratio is not none else '--' }}%</div>
+              <div class="text-xl text-slate-500 tracking-tight">SZSE</div>
+            </div>
           </div>
         </div>
       </div>
@@ -397,12 +403,12 @@
       } catch (_) {}
     })();
 
-    // Auto-refresh every 60 seconds
+    // Auto-refresh every 5 minutes
     setTimeout(() => {
       const url = new URL(window.location.href);
       url.searchParams.set('refresh', '1');
       window.location.href = url.toString();
-    }, 60000);
+    }, 300000);
   </script>
 </body>
 </html>
