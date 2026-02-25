@@ -86,3 +86,8 @@ if [ -n "$web_id" ]; then
   echo "Web log level: $(detect_uvicorn_log_level "$web_id")"
 fi
 echo "Project started."
+echo "===== memory ====="
+free -h
+echo "===== disk ====="
+df -h .
+

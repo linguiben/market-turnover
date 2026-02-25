@@ -115,7 +115,7 @@ market_index
 | `backfill_cn_halfday` | 用 Eastmoney 回填 A 股半日/全日成交 | 无自动调度（按需执行） | 手动（Jobs 页 / API） | 无必填参数 |
 | `backfill_intraday_kline` | 回填分钟K线源数据（1m/5m） | 无自动调度（按需执行） | 手动（API） | 当前未在 Jobs 页面列出 |
 | `persist_eastmoney_kline_all` | 持久化 Eastmoney 可获取范围内的 1m/5m K线 | 无自动调度（按需执行） | 手动（Jobs 页 / API） | 可传 `lookback_days_1m`、`lookback_days_5m` |
-| `backfill_hsi_am_from_kline` | 从 5m K线聚合回填 HSI 半日成交 | 无自动调度（按需执行） | 手动（Jobs 页 / API） | 可传 `date_from`、`date_to` |
+| `backfill_hsi_turnover_from_kline` | 回填 HSI 成交（AM + FULL） | 每日 21:00（cron） | 定时 + 手动（Jobs 页 / API） | 可传 `date_from`、`date_to` |
 | `backfill_hkex` | 从 HKEX 官方统计回填历史全日成交 | 无自动调度（按需执行） | 手动（Jobs 页 / API） | 无必填参数 |
 | `backfill_hsi_am_yesterday` | 回填 HSI 指定日（默认昨日）半日成交 | 无自动调度（按需执行） | 手动（Jobs 页 / API） | 可传 `trade_date` |
 

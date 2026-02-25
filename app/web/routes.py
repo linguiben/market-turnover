@@ -325,6 +325,77 @@ def _fmt_sync_time(value: datetime | None) -> str:
     return value.strftime("%Y-%m-%d %H:%M:%S")
 
 
+def _latest_realtime_snapshot_for_kline(db: Session, *, index_id: int) -> IndexRealtimeSnapshot | None:
+    return (
+        db.query(IndexRealtimeSnapshot)
+        .filter(IndexRealtimeSnapshot.index_id == index_id)
+        .filter(IndexRealtimeSnapshot.source == "EASTMONEY")
+        .order_by(IndexRealtimeSnapshot.id.desc())
+        .first()
+    )
+
+
+def _extract_minute_kline_from_payload(payload: dict | None, *, limit: int = 120) -> dict[str, list]:
+    if not isinstance(payload, dict):
+        return {"times": [], "values": []}
+
+    raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else payload
+    resp = raw.get("resp") if isinstance(raw, dict) and isinstance(raw.get("resp"), dict) else raw
+    data = resp.get("data") if isinstance(resp, dict) and isinstance(resp.get("data"), dict) else {}
+
+    rows = data.get("klines")
+    if not isinstance(rows, list):
+        rows = raw.get("klines") if isinstance(raw, dict) else None
+    if not isinstance(rows, list):
+        return {"times": [], "values": []}
+
+    parsed: list[tuple[str, list[float]]] = []
+    for row in rows:
+        if isinstance(row, str):
+            p = row.split(",")
+            if len(p) < 5:
+                continue
+            ts = p[0].strip()
+            try:
+                o = float(p[1])
+                c = float(p[2])
+                h = float(p[3])
+                l = float(p[4])
+            except ValueError:
+                continue
+            parsed.append((ts, [o, c, l, h]))
+            continue
+
+        if isinstance(row, dict):
+            ts = str(row.get("time") or row.get("ts") or row.get("dt") or "").strip()
+            if not ts:
+                continue
+            try:
+                o = float(row.get("open"))
+                c = float(row.get("close"))
+                h = float(row.get("high"))
+                l = float(row.get("low"))
+            except (TypeError, ValueError):
+                continue
+            parsed.append((ts, [o, c, l, h]))
+
+    if not parsed:
+        return {"times": [], "values": []}
+
+    by_ts: dict[str, list[float]] = {}
+    for ts, values in parsed:
+        by_ts[ts] = values
+
+    ordered = sorted(by_ts.items(), key=lambda x: x[0])[-limit:]
+    times = []
+    values = []
+    for ts, val in ordered:
+        times.append(ts.split(" ")[-1][:5] if " " in ts else ts)
+        values.append(val)
+
+    return {"times": times, "values": values}
+
+
 def _template_context(request: Request, *, current_user: AppUser | None, **kwargs):
     data = {"request": request, "current_user": current_user}
     data.update(kwargs)
@@ -623,11 +694,17 @@ def _dashboard_impl(
         else:
             name = index_row.name_zh if index_row is not None else INDEX_FALLBACK_NAMES[code]
 
+        minute_kline = {"times": [], "values": []}
+        if index_row is not None:
+            latest_any = _latest_realtime_snapshot_for_kline(db, index_id=index_row.id)
+            minute_kline = _extract_minute_kline_from_payload(latest_any.payload if latest_any is not None else None)
+
         cards.append(
             {
                 "code": code,
                 "name": name,
                 "chart_id": f"{code.lower()}-chart",
+                "kline_chart_id": f"{code.lower()}-kline-chart",
                 "last_price": _fmt_price(full_last),
                 "change_pct": _fmt_pct(price_change_pct),
                 "price_class": price_class,
@@ -642,6 +719,7 @@ def _dashboard_impl(
         chart_items.append(
             {
                 "id": f"{code.lower()}-chart",
+                "kline_id": f"{code.lower()}-kline-chart",
                 "data": {
                     "todayPoints": today_points,
                     "maxPoints": round(max_points, 2),
@@ -655,6 +733,7 @@ def _dashboard_impl(
                     "tenAvgVolDay": _avg(full_turnover_series, 10),
                     "maxVolAM": _to_yi(max(am_turnover_series) if am_turnover_series else None),
                     "maxVolDay": _to_yi(int(peak_turnover) if peak_turnover is not None else None),
+                    "minuteKline": minute_kline,
                 },
             }
         )

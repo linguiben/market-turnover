@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from datetime import date, time
 
 from app.config import settings
-from app.db.models import IndexKlineSourceRecord, IndexQuoteSourceRecord, JobRun, HsiQuoteFact, KlineInterval, SessionType, TurnoverSourceRecord, IndexQuoteHistory, IndexRealtimeApiSnapshot
+from app.db.models import IndexKlineSourceRecord, IndexQuoteSourceRecord, JobRun, HsiQuoteFact, KlineInterval, SessionType, TurnoverSourceRecord, IndexQuoteHistory, IndexRealtimeApiSnapshot, IndexRealtimeSnapshot
 from app.services.index_quote_resolver import (
     add_index_source_record,
     ensure_market_index,
@@ -1408,8 +1408,11 @@ def run_job(db: Session, job_name: str, params: dict | None = None) -> JobRun:
                     "errors": errors,
                 }
 
-        elif job_name == "backfill_hsi_am_from_kline":
-            # Aggregate HSI AM turnover from persisted kline rows (index_kline_source_record)
+        elif job_name == "backfill_hsi_turnover_from_kline":
+            # Backfill HSI AM turnover from realtime snapshots:
+            # - pick latest row whose data_updated_at is between 12:00:00 and 12:15:00
+            # - write/update AM history
+            # - update same-day FULL history turnover from latest realtime API snapshot
             idx = ensure_market_index(db, "HSI")
 
             date_from = None
@@ -1419,85 +1422,113 @@ def run_job(db: Session, job_name: str, params: dict | None = None) -> JobRun:
             if params and params.get("date_to"):
                 date_to = date.fromisoformat(str(params.get("date_to")).strip())
 
-            q = (
-                db.query(IndexKlineSourceRecord)
-                .filter(IndexKlineSourceRecord.index_id == idx.id)
-                .filter(IndexKlineSourceRecord.source == "EASTMONEY")
-                .filter(IndexKlineSourceRecord.interval == KlineInterval.M5)
-                .filter(IndexKlineSourceRecord.ok.is_(True))
-            )
-            if date_from is not None:
-                q = q.filter(IndexKlineSourceRecord.trade_date >= date_from)
-            if date_to is not None:
-                q = q.filter(IndexKlineSourceRecord.trade_date <= date_to)
-            rows = q.order_by(IndexKlineSourceRecord.trade_date.asc(), IndexKlineSourceRecord.bar_time.asc()).all()
+            if date_from is None and date_to is None:
+                target_dates = [date.today()]
+            else:
+                if date_from is None:
+                    date_from = date_to
+                if date_to is None:
+                    date_to = date_from
+                if date_from is None or date_to is None:
+                    target_dates = []
+                else:
+                    if date_from > date_to:
+                        date_from, date_to = date_to, date_from
+                    days = (date_to - date_from).days
+                    target_dates = [date_from + timedelta(days=i) for i in range(days + 1)]
 
-            by_day: dict[date, list[IndexKlineSourceRecord]] = {}
-            for r in rows:
-                by_day.setdefault(r.trade_date, []).append(r)
-
-            cutoff = time(12, 30)
-            updated = 0
+            tz = ZoneInfo("Asia/Shanghai")
+            updated_am = 0
+            updated_full = 0
             skipped = 0
             details: dict[str, dict] = {}
 
-            for d, bars in sorted(by_day.items()):
-                # skip if already has AM history with turnover
-                existing = (
-                    db.query(IndexQuoteHistory)
-                    .filter(IndexQuoteHistory.index_id == idx.id)
-                    .filter(IndexQuoteHistory.trade_date == d)
-                    .filter(IndexQuoteHistory.session == SessionType.AM)
-                    .one_or_none()
+            for d in target_dates:
+                win_start = datetime.combine(d, time(12, 0), tzinfo=tz)
+                win_end = datetime.combine(d, time(12, 15), tzinfo=tz)
+
+                snap = (
+                    db.query(IndexRealtimeSnapshot)
+                    .filter(IndexRealtimeSnapshot.index_id == idx.id)
+                    .filter(IndexRealtimeSnapshot.trade_date == d)
+                    .filter(IndexRealtimeSnapshot.data_updated_at >= win_start)
+                    .filter(IndexRealtimeSnapshot.data_updated_at <= win_end)
+                    .filter(IndexRealtimeSnapshot.turnover_amount.isnot(None))
+                    .order_by(IndexRealtimeSnapshot.id.desc())
+                    .first()
                 )
-                if existing is not None and existing.turnover_amount is not None:
+
+                day_detail: dict[str, object] = {"window_start": win_start.isoformat(), "window_end": win_end.isoformat()}
+
+                if snap is None:
                     skipped += 1
-                    continue
+                    day_detail["am_status"] = "no_snapshot_in_window"
+                else:
+                    add_index_source_record(
+                        db,
+                        index_id=idx.id,
+                        trade_date=d,
+                        session=SessionType.AM,
+                        source="REALTIME_SNAPSHOT",
+                        last=int(snap.last) if snap.last is not None else None,
+                        change_points=snap.change_points,
+                        change_pct=snap.change_pct,
+                        turnover_amount=int(snap.turnover_amount) if snap.turnover_amount is not None else None,
+                        turnover_currency=snap.turnover_currency or "HKD",
+                        asof_ts=snap.data_updated_at,
+                        payload={
+                            "from": "index_realtime_snapshot",
+                            "window_start": win_start.isoformat(),
+                            "window_end": win_end.isoformat(),
+                            "snapshot_id": int(snap.id),
+                        },
+                        ok=True,
+                    )
+                    am_fact = upsert_index_history_from_sources(db, index_id=idx.id, trade_date=d, session=SessionType.AM)
+                    if am_fact is not None:
+                        updated_am += 1
+                        day_detail["am_status"] = "updated"
+                        day_detail["am_turnover_amount"] = int(am_fact.turnover_amount or 0)
+                    else:
+                        day_detail["am_status"] = "source_written_but_history_not_updated"
 
-                am_amount = 0
-                have_amount = False
-                am_close = None
-                am_asof = None
-
-                for r in bars:
-                    bt = r.bar_time
-                    try:
-                        bt_local = bt.astimezone(timezone(timedelta(hours=8)))
-                    except Exception:
-                        bt_local = bt
-                    if bt_local.time() <= cutoff:
-                        if r.turnover_amount is not None:
-                            am_amount += int(r.turnover_amount)
-                            have_amount = True
-                        if r.close is not None:
-                            am_close = int(r.close)
-                        am_asof = bt
-
-                if not have_amount or am_close is None:
-                    continue
-
-                add_index_source_record(
-                    db,
-                    index_id=idx.id,
-                    trade_date=d,
-                    session=SessionType.AM,
-                    source="EASTMONEY",
-                    last=am_close,
-                    change_points=None,
-                    change_pct=None,
-                    turnover_amount=am_amount,
-                    turnover_currency="HKD",
-                    asof_ts=am_asof,
-                    payload={"from": "index_kline_source_record", "interval": "5m", "cutoff": "12:30"},
-                    ok=True,
+                api_latest = (
+                    db.query(IndexRealtimeApiSnapshot)
+                    .filter(IndexRealtimeApiSnapshot.index_id == idx.id)
+                    .filter(IndexRealtimeApiSnapshot.trade_date == d)
+                    .filter(IndexRealtimeApiSnapshot.turnover_amount.isnot(None))
+                    .order_by(IndexRealtimeApiSnapshot.data_updated_at.desc(), IndexRealtimeApiSnapshot.id.desc())
+                    .first()
                 )
-                fact = upsert_index_history_from_sources(db, index_id=idx.id, trade_date=d, session=SessionType.AM)
-                if fact is not None:
-                    updated += 1
-                    details[str(d)] = {"turnover_amount": am_amount}
+                if api_latest is not None:
+                    full_fact = (
+                        db.query(IndexQuoteHistory)
+                        .filter(IndexQuoteHistory.index_id == idx.id)
+                        .filter(IndexQuoteHistory.trade_date == d)
+                        .filter(IndexQuoteHistory.session == SessionType.FULL)
+                        .one_or_none()
+                    )
+                    if full_fact is not None:
+                        full_fact.turnover_amount = int(api_latest.turnover_amount)
+                        db.commit()
+                        updated_full += 1
+                        day_detail["full_status"] = "updated"
+                        day_detail["full_turnover_amount"] = int(full_fact.turnover_amount or 0)
+                    else:
+                        day_detail["full_status"] = "full_history_missing"
+                else:
+                    day_detail["full_status"] = "no_realtime_api_snapshot"
+
+                details[str(d)] = day_detail
 
             status = "success"
-            summary = {"updated": updated, "skipped": skipped, "days": len(by_day), "details": details}
+            summary = {
+                "updated_am": updated_am,
+                "updated_full": updated_full,
+                "skipped": skipped,
+                "days": len(target_dates),
+                "details": details,
+            }
 
         elif job_name == "backfill_hsi_am_yesterday":
 

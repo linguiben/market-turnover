@@ -132,14 +132,14 @@ INSERT INTO job_definition (
     TRUE, TRUE, FALSE, 120
 ),
 (
-    'backfill_hsi_am_from_kline',
-    'backfill_hsi_am_from_kline',
-    '回填HSI半日成交(由K线聚合)',
-    '基于 index_kline_source_record(EASTMONEY,5m) 聚合回填 HSI 的历史 AM turnover 到 index_quote_history。',
-    '["index_kline_source_record", "index_quote_source_record", "index_quote_history"]'::jsonb,
+    'backfill_hsi_turnover_from_kline',
+    'backfill_hsi_turnover_from_kline',
+    '回填HSI成交(AM+FULL)',
+    '回填 HSI 历史 AM turnover（12:00-12:15窗口）并同步更新当日 FULL turnover 到 index_quote_history。',
+    '["index_realtime_snapshot", "index_realtime_api_snapshot", "index_quote_source_record", "index_quote_history"]'::jsonb,
     '[{"name":"date_from","label":"Date from (YYYY-MM-DD, optional)","type":"text","placeholder":"2026-01-12"},{"name":"date_to","label":"Date to (YYYY-MM-DD, optional)","type":"text","placeholder":"2026-02-11"}]'::jsonb,
     '{}'::jsonb,
-    TRUE, TRUE, FALSE, 130
+    TRUE, TRUE, TRUE, 130
 ),
 (
     'backfill_hkex',
@@ -198,6 +198,7 @@ INSERT INTO job_schedule (
 ('fetch_am', '1135', 'cron', 'Asia/Shanghai', '0', '35', '11', '*', '*', 'mon-fri', NULL, 120, TRUE, 1, TRUE, '工作日 11:35'),
 ('fetch_am', '1208', 'cron', 'Asia/Shanghai', '0', '8', '12', '*', '*', 'mon-fri', NULL, 120, TRUE, 1, TRUE, '工作日 12:08'),
 ('fetch_tushare_index', '2000', 'cron', 'Asia/Shanghai', '0', '0', '20', '*', '*', '*', NULL, 600, TRUE, 1, TRUE, '每日 20:00'),
+('backfill_hsi_turnover_from_kline', '2100', 'cron', 'Asia/Shanghai', '0', '0', '21', '*', '*', '*', NULL, 600, TRUE, 1, TRUE, '每日 21:00'),
 ('fetch_full', '1610', 'cron', 'Asia/Shanghai', '0', '10', '16', '*', '*', 'mon-fri', NULL, 120, TRUE, 1, TRUE, '工作日 16:10'),
 ('zhi_insights_job', 'interval', 'cron', 'Asia/Shanghai', '0', '0,30', '9-16', '*', '*', 'mon-fri', NULL, 120, TRUE, 1, TRUE, '工作日 09:00-16:59 每30分钟'),
 ('zhi_insights_job', '1700', 'cron', 'Asia/Shanghai', '0', '0', '17', '*', '*', 'mon-fri', NULL, 120, TRUE, 1, TRUE, '工作日 17:00'),

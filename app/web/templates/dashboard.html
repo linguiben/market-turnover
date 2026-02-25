@@ -106,6 +106,8 @@
           <span>全日成交: {{ card.today_turnover_day }}</span>
         </div>
         <div id="{{ card.chart_id }}" class="w-full h-[360px]"></div>
+        <div class="mt-3 text-[11px] text-slate-400">分钟K线（最新快照 payload）</div>
+        <div id="{{ card.kline_chart_id }}" class="w-full h-[180px]"></div>
         <div class="mt-2 text-[10px] text-slate-500 text-right">更新时间（延迟）: {{ card.updated_at }}</div>
       </div>
       {% endfor %}
@@ -348,6 +350,42 @@
       };
     }
 
+    function getMinuteKlineOption(minuteData, lightTheme) {
+      const axisText = lightTheme ? "#475569" : "#94a3b8";
+      const axisLine = lightTheme ? "#94a3b8" : "#334155";
+      const splitLine = lightTheme ? "#e2e8f0" : "#1e293b";
+      return {
+        animation: false,
+        grid: { left: "8%", right: "8%", top: "10%", bottom: "18%" },
+        tooltip: { trigger: "axis", axisPointer: { type: "cross" } },
+        xAxis: {
+          type: "category",
+          data: minuteData.times || [],
+          boundaryGap: true,
+          axisLine: { lineStyle: { color: axisLine } },
+          axisLabel: { color: axisText, fontSize: 10 },
+        },
+        yAxis: {
+          type: "value",
+          scale: true,
+          splitLine: { lineStyle: { color: splitLine } },
+          axisLabel: { color: axisText, fontSize: 10 },
+        },
+        series: [
+          {
+            type: "candlestick",
+            data: minuteData.values || [],
+            itemStyle: {
+              color: "#ef4444",
+              color0: "#10b981",
+              borderColor: "#ef4444",
+              borderColor0: "#10b981",
+            },
+          },
+        ],
+      };
+    }
+
     function detectDefaultTheme() {
       const saved = localStorage.getItem("dashboard_theme");
       if (saved === "light" || saved === "dark") {
@@ -373,9 +411,22 @@
       const node = document.getElementById(item.id);
       if (!node) return;
       const chart = echarts.init(node);
-      chartInstances.push({ chart, data: item.data });
+      chartInstances.push({ chart, data: item.data, kind: "main" });
       chart.setOption(getOption(item.data, isLightTheme()));
       window.addEventListener("resize", () => chart.resize());
+
+      const minuteNode = document.getElementById(item.kline_id);
+      if (!minuteNode) return;
+      const minuteData = (item.data && item.data.minuteKline) || { times: [], values: [] };
+      if (!minuteData.times || minuteData.times.length === 0) {
+        minuteNode.classList.add("flex", "items-center", "justify-center", "text-xs", "text-slate-500");
+        minuteNode.textContent = "暂无分钟K线数据";
+        return;
+      }
+      const minuteChart = echarts.init(minuteNode);
+      chartInstances.push({ chart: minuteChart, data: minuteData, kind: "minute" });
+      minuteChart.setOption(getMinuteKlineOption(minuteData, isLightTheme()));
+      window.addEventListener("resize", () => minuteChart.resize());
     });
 
     const themeToggleBtn = document.getElementById("themeToggleBtn");
@@ -384,24 +435,15 @@
         const nextTheme = isLightTheme() ? "dark" : "light";
         localStorage.setItem("dashboard_theme", nextTheme);
         applyTheme(nextTheme);
-        chartInstances.forEach(item => item.chart.setOption(getOption(item.data, isLightTheme()), true));
+        chartInstances.forEach(item => {
+          if (item.kind === "minute") {
+            item.chart.setOption(getMinuteKlineOption(item.data, isLightTheme()), true);
+          } else {
+            item.chart.setOption(getOption(item.data, isLightTheme()), true);
+          }
+        });
       });
     }
-
-    (async () => {
-      try {
-        const base = {{ base | tojson }};
-        const url = `${base}/api/insights/latest?lang=zh`;
-        const resp = await fetch(url, { credentials: "same-origin" });
-        if (!resp.ok) return;
-        const data = await resp.json();
-        const node = document.getElementById("insightText");
-        if (!node) return;
-        if (data && data.ok && data.insight_text) {
-          node.textContent = data.insight_text;
-        }
-      } catch (_) {}
-    })();
 
     // Auto-refresh every 5 minutes
     setTimeout(() => {
