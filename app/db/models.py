@@ -372,6 +372,62 @@ class JobRun(Base):
     error = Column(Text, nullable=True)
 
 
+class JobDefinition(Base):
+    __tablename__ = "job_definition"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    job_name = Column(String(64), nullable=False, unique=True)
+    handler_name = Column(String(64), nullable=False)
+    label_zh = Column(String(128), nullable=False)
+    label_en = Column(String(128), nullable=True)
+    description_zh = Column(Text, nullable=False)
+    description_en = Column(Text, nullable=True)
+    targets = Column(JSONB, nullable=False, default=list)
+    params_schema = Column(JSONB, nullable=False, default=list)
+    default_params = Column(JSONB, nullable=False, default=dict)
+    is_active = Column(Boolean, nullable=False, default=True)
+    manual_enabled = Column(Boolean, nullable=False, default=True)
+    schedule_enabled = Column(Boolean, nullable=False, default=True)
+    ui_order = Column(Integer, nullable=False, default=100)
+    revision = Column(Integer, nullable=False, default=1)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+
+Index("ix_job_definition_active_order", JobDefinition.is_active, JobDefinition.ui_order, JobDefinition.job_name)
+
+
+class JobSchedule(Base):
+    __tablename__ = "job_schedule"
+    __table_args__ = (UniqueConstraint("job_name", "schedule_code", name="uq_job_schedule"),)
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    job_name = Column(String(64), ForeignKey("job_definition.job_name", ondelete="CASCADE"), nullable=False)
+    schedule_code = Column(String(64), nullable=False)
+    trigger_type = Column(String(16), nullable=False, default="cron")
+    timezone = Column(String(64), nullable=False, default="Asia/Shanghai")
+    second = Column(String(32), nullable=False, default="0")
+    minute = Column(String(32), nullable=False, default="*")
+    hour = Column(String(32), nullable=False, default="*")
+    day = Column(String(32), nullable=False, default="*")
+    month = Column(String(32), nullable=False, default="*")
+    day_of_week = Column(String(32), nullable=False, default="*")
+    start_date = Column(DateTime(timezone=True), nullable=True)
+    end_date = Column(DateTime(timezone=True), nullable=True)
+    jitter_seconds = Column(Integer, nullable=True)
+    misfire_grace_time = Column(Integer, nullable=False, default=120)
+    coalesce = Column(Boolean, nullable=False, default=True)
+    max_instances = Column(Integer, nullable=False, default=1)
+    is_active = Column(Boolean, nullable=False, default=True)
+    description = Column(String(255), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+
+Index("ix_job_schedule_active_job", JobSchedule.is_active, JobSchedule.job_name)
+Index("ix_job_schedule_job", JobSchedule.job_name)
+
+
 class AppCache(Base):
     __tablename__ = "app_cache"
 
