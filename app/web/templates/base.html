@@ -21,7 +21,8 @@
   <nav>
     <a href="{{ base }}/">Dashboard</a> |
     <a href="{{ base }}/recent">Recent 30</a> |
-    <a href="{{ base }}/jobs">Jobs</a>
+    <a href="{{ base }}/jobs">Jobs</a> |
+    <a href="{{ base }}/register">Register</a>
     {% if current_user %}
       | <span>{{ current_user.email }}</span>
       <form method="post" action="{{ base }}/logout" style="display:inline;">
@@ -29,7 +30,6 @@
       </form>
     {% else %}
       | <a href="{{ base }}/login">Login</a>
-      | <a href="{{ base }}/register">Register</a>
     {% endif %}
   </nav>
   <hr />

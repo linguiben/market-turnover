@@ -1,0 +1,221 @@
+INSERT INTO job_definition (
+    job_name,
+    handler_name,
+    label_zh,
+    description_zh,
+    targets,
+    params_schema,
+    default_params,
+    is_active,
+    manual_enabled,
+    schedule_enabled,
+    ui_order
+) VALUES
+(
+    'zhi_insights_job',
+    'zhi_insights_job',
+    '生成智能分析Insights',
+    '聚合 HSI/SSE/SZSE 当前快照并调用 LLM（OpenAI/Gemini）生成中英文 Insights，失败则写入固定兜底文案。',
+    '["insight_snapshot", "insight_sys_prompt"]'::jsonb,
+    '[]'::jsonb,
+    '{}'::jsonb,
+    TRUE, TRUE, TRUE, 10
+),
+(
+    'fetch_am',
+    'fetch_am',
+    '午盘抓取',
+    '抓取午盘成交额和 HSI 快照（AASTOCKS）；若抓取失败则不写入 MOCK 数据；同时尝试同步最新 Tushare 指数。',
+    '["turnover_source_record", "turnover_fact", "hsi_quote_fact"]'::jsonb,
+    '[]'::jsonb,
+    '{}'::jsonb,
+    TRUE, TRUE, TRUE, 20
+),
+(
+    'fetch_full',
+    'fetch_full',
+    '全日抓取',
+    '抓取全日成交额和 HSI 快照（AASTOCKS）；若抓取失败则不写入 MOCK 数据；同时尝试同步最新 Tushare 指数。',
+    '["turnover_source_record", "turnover_fact", "hsi_quote_fact"]'::jsonb,
+    '[]'::jsonb,
+    '{}'::jsonb,
+    TRUE, TRUE, TRUE, 30
+),
+(
+    'fetch_tushare_index',
+    'fetch_tushare_index',
+    '同步最新指数',
+    '同步 HSI/SSE/SZSE/DJI/IXIC/SPX/FTSE/GDAXI/N225/KS11/CSX5P 的最新一个交易日(日线)数据，使用 Tushare index_global 接口。',
+    '["index_quote_source_record", "index_quote_history", "index_realtime_snapshot"]'::jsonb,
+    '[]'::jsonb,
+    '{}'::jsonb,
+    TRUE, TRUE, TRUE, 40
+),
+(
+    'fetch_eastmoney_realtime_snapshot',
+    'fetch_eastmoney_realtime_snapshot',
+    '抓取EastMoney实时快照(11指数)',
+    '使用 push2.eastmoney.com/api/qt/stock/get 抓取11个指数实时快照，落库到 index_realtime_api_snapshot。',
+    '["index_realtime_api_snapshot"]'::jsonb,
+    '[{"name":"codes","label":"Index codes (comma)","type":"text","placeholder":"HSI,SSE,SZSE,HS11,DJI,IXIC,SPX,N225,UKX,DAX,ESTOXX50E"}]'::jsonb,
+    '{}'::jsonb,
+    TRUE, TRUE, TRUE, 50
+),
+(
+    'fetch_intraday_snapshot',
+    'fetch_intraday_snapshot',
+    '抓取盘中快照',
+    '抓取盘中快照：HSI/SSE/SZSE/HS11(AASTOCKS/EASTMONEY), DJI/IXIC/SPX/N225/UKX/DAX/ESTOXX50E/HS11(Tencent)。默认抓取11个指数。',
+    '["index_realtime_snapshot"]'::jsonb,
+    '[{"name":"codes","label":"Index codes (comma)","type":"text","placeholder":"HSI,SSE,SZSE,HS11,DJI,IXIC,SPX,N225,UKX,DAX,ESTOXX50E"},{"name":"force_source","label":"Force source (optional)","type":"text","placeholder":"AASTOCKS/EASTMONEY/TUSHARE"}]'::jsonb,
+    '{}'::jsonb,
+    TRUE, TRUE, TRUE, 60
+),
+(
+    'refresh_home_global_quotes',
+    'refresh_home_global_quotes',
+    '刷新主页-全球股市(Tencent)',
+    '刷新主页『全球股市（免費：Tencent 行情）』缓存数据。',
+    '["app_cache"]'::jsonb,
+    '[]'::jsonb,
+    '{}'::jsonb,
+    TRUE, TRUE, TRUE, 70
+),
+(
+    'refresh_home_trade_corridor',
+    'refresh_home_trade_corridor',
+    '刷新主页-Trade Corridor(POC)',
+    '刷新主页『Most Active Trade Corridor（跨市場資金通道｜POC）』缓存数据（当前为MOCK）。',
+    '["app_cache"]'::jsonb,
+    '[]'::jsonb,
+    '{}'::jsonb,
+    TRUE, TRUE, TRUE, 80
+),
+(
+    'fetch_intraday_bars_cn_5m',
+    'fetch_intraday_bars_cn_5m',
+    '保存A股 5分钟K线',
+    '保存 SSE/SZSE 的 5分钟K线原始bar到 index_intraday_bar（EASTMONEY, lookback=7天）。',
+    '["index_intraday_bar"]'::jsonb,
+    '[{"name":"lookback_days","label":"Lookback days","type":"number","placeholder":"7"}]'::jsonb,
+    '{}'::jsonb,
+    TRUE, TRUE, FALSE, 90
+),
+(
+    'backfill_tushare_index',
+    'backfill_tushare_index',
+    '回填指数1年',
+    '回填最近 1 年 HSI/SSE/SZSE/DJI/IXIC/SPX/FTSE/GDAXI/N225/KS11/CSX5P 日线数据（跳过已存在记录）。',
+    '["index_quote_source_record", "index_quote_history"]'::jsonb,
+    '[]'::jsonb,
+    '{}'::jsonb,
+    TRUE, TRUE, FALSE, 100
+),
+(
+    'backfill_cn_halfday',
+    'backfill_cn_halfday',
+    '回填A股半日成交(90天)',
+    '用 Eastmoney 分钟线回填 SSE/SZSE 的半日成交额与全日成交额（用于柱状图和均值）。',
+    '["index_quote_history", "index_quote_source_record"]'::jsonb,
+    '[]'::jsonb,
+    '{}'::jsonb,
+    TRUE, TRUE, FALSE, 110
+),
+(
+    'persist_eastmoney_kline_all',
+    'persist_eastmoney_kline_all',
+    '保存Eastmoney分钟K线(可得范围)',
+    '把 Eastmoney 当前可返回的 1m/5m 指数K线写入 index_kline_source_record（HSI/SSE/SZSE）。',
+    '["index_kline_source_record"]'::jsonb,
+    '[{"name":"lookback_days_1m","label":"Lookback days (1m)","type":"number","placeholder":"365"},{"name":"lookback_days_5m","label":"Lookback days (5m)","type":"number","placeholder":"365"}]'::jsonb,
+    '{}'::jsonb,
+    TRUE, TRUE, FALSE, 120
+),
+(
+    'backfill_hsi_am_from_kline',
+    'backfill_hsi_am_from_kline',
+    '回填HSI半日成交(由K线聚合)',
+    '基于 index_kline_source_record(EASTMONEY,5m) 聚合回填 HSI 的历史 AM turnover 到 index_quote_history。',
+    '["index_kline_source_record", "index_quote_source_record", "index_quote_history"]'::jsonb,
+    '[{"name":"date_from","label":"Date from (YYYY-MM-DD, optional)","type":"text","placeholder":"2026-01-12"},{"name":"date_to","label":"Date to (YYYY-MM-DD, optional)","type":"text","placeholder":"2026-02-11"}]'::jsonb,
+    '{}'::jsonb,
+    TRUE, TRUE, FALSE, 130
+),
+(
+    'backfill_hkex',
+    'backfill_hkex',
+    '回填HKEX历史',
+    '从 HKEX 统计页面回填港股成交额历史（FULL）。',
+    '["turnover_source_record", "turnover_fact"]'::jsonb,
+    '[]'::jsonb,
+    '{}'::jsonb,
+    TRUE, TRUE, FALSE, 140
+),
+(
+    'backfill_hsi_am_yesterday',
+    'backfill_hsi_am_yesterday',
+    '回填HSI昨日半日成交',
+    '从 Eastmoney 1分钟K线聚合回填 HSI 昨日半日成交（<=12:30）。',
+    '["index_realtime_snapshot"]'::jsonb,
+    '[{"name":"trade_date","label":"Trade date (YYYY-MM-DD, optional)","type":"text","placeholder":"2026-02-10"}]'::jsonb,
+    '{}'::jsonb,
+    TRUE, TRUE, FALSE, 150
+)
+ON CONFLICT (job_name) DO UPDATE SET
+    handler_name = EXCLUDED.handler_name,
+    label_zh = EXCLUDED.label_zh,
+    description_zh = EXCLUDED.description_zh,
+    targets = EXCLUDED.targets,
+    params_schema = EXCLUDED.params_schema,
+    default_params = EXCLUDED.default_params,
+    manual_enabled = EXCLUDED.manual_enabled,
+    schedule_enabled = EXCLUDED.schedule_enabled,
+    ui_order = EXCLUDED.ui_order,
+    updated_at = NOW();
+
+INSERT INTO job_schedule (
+    job_name,
+    schedule_code,
+    trigger_type,
+    timezone,
+    second,
+    minute,
+    hour,
+    day,
+    month,
+    day_of_week,
+    jitter_seconds,
+    misfire_grace_time,
+    coalesce,
+    max_instances,
+    is_active,
+    description
+) VALUES
+('fetch_eastmoney_realtime_snapshot', 'interval', 'cron', 'Asia/Shanghai', '0', '0', '9-16', '*', '*', 'mon-fri', NULL, 120, TRUE, 1, TRUE, '工作日 09:00-16:00，每小时整点'),
+('fetch_eastmoney_realtime_snapshot', '1700', 'cron', 'Asia/Shanghai', '0', '0', '17', '*', '*', 'mon-fri', NULL, 120, TRUE, 1, TRUE, '工作日 17:00'),
+('fetch_intraday_snapshot', 'interval', 'cron', 'Asia/Shanghai', '0', '*/3', '9-16', '*', '*', 'mon-fri', 30, 120, TRUE, 1, TRUE, '工作日 09:00-16:59 每3分钟'),
+('fetch_intraday_snapshot', '1700', 'cron', 'Asia/Shanghai', '0', '0', '17', '*', '*', 'mon-fri', NULL, 120, TRUE, 1, TRUE, '工作日 17:00'),
+('fetch_am', '1135', 'cron', 'Asia/Shanghai', '0', '35', '11', '*', '*', 'mon-fri', NULL, 120, TRUE, 1, TRUE, '工作日 11:35'),
+('fetch_am', '1208', 'cron', 'Asia/Shanghai', '0', '8', '12', '*', '*', 'mon-fri', NULL, 120, TRUE, 1, TRUE, '工作日 12:08'),
+('fetch_tushare_index', '2000', 'cron', 'Asia/Shanghai', '0', '0', '20', '*', '*', '*', NULL, 600, TRUE, 1, TRUE, '每日 20:00'),
+('fetch_full', '1610', 'cron', 'Asia/Shanghai', '0', '10', '16', '*', '*', 'mon-fri', NULL, 120, TRUE, 1, TRUE, '工作日 16:10'),
+('zhi_insights_job', 'interval', 'cron', 'Asia/Shanghai', '0', '0,30', '9-16', '*', '*', 'mon-fri', NULL, 120, TRUE, 1, TRUE, '工作日 09:00-16:59 每30分钟'),
+('zhi_insights_job', '1700', 'cron', 'Asia/Shanghai', '0', '0', '17', '*', '*', 'mon-fri', NULL, 120, TRUE, 1, TRUE, '工作日 17:00'),
+('refresh_home_global_quotes', '5m', 'cron', 'Asia/Shanghai', '0', '*/5', '*', '*', '*', '*', NULL, 120, TRUE, 1, TRUE, '每5分钟'),
+('refresh_home_trade_corridor', '5m', 'cron', 'Asia/Shanghai', '0', '*/5', '*', '*', '*', '*', NULL, 120, TRUE, 1, TRUE, '每5分钟')
+ON CONFLICT (job_name, schedule_code) DO UPDATE SET
+    trigger_type = EXCLUDED.trigger_type,
+    timezone = EXCLUDED.timezone,
+    second = EXCLUDED.second,
+    minute = EXCLUDED.minute,
+    hour = EXCLUDED.hour,
+    day = EXCLUDED.day,
+    month = EXCLUDED.month,
+    day_of_week = EXCLUDED.day_of_week,
+    jitter_seconds = EXCLUDED.jitter_seconds,
+    misfire_grace_time = EXCLUDED.misfire_grace_time,
+    coalesce = EXCLUDED.coalesce,
+    max_instances = EXCLUDED.max_instances,
+    is_active = EXCLUDED.is_active,
+    description = EXCLUDED.description,
+    updated_at = NOW();

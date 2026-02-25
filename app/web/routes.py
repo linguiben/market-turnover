@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ipaddress
+import json
 from datetime import date
 from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -22,6 +23,8 @@ from app.db.models import (
     IndexQuoteHistory,
     IndexRealtimeSnapshot,
     IndexRealtimeApiSnapshot,
+    JobDefinition,
+    JobSchedule,
     JobRun,
     MarketIndex,
     SessionType,
@@ -33,6 +36,7 @@ from app.services.tencent_quote import fetch_quotes
 from app.services.trade_corridor import get_trade_corridor_highlights_mock
 from app.services.app_cache import get_cache, upsert_cache
 from app.services.insight_service import get_fallback_insight_text, get_latest_insight_snapshot
+from app.services.job_scheduler import reload_scheduler
 from app.web.activity_counter import get_global_visited_count, increment_activity_counter
 from app.web.auth import (
     build_login_redirect,
@@ -60,127 +64,73 @@ templates.env.globals["format_hsi"] = format_hsi_price_x100
 INDEX_CODES = ("HSI", "SSE", "SZSE")
 INDEX_FALLBACK_NAMES = {"HSI": "恒生指数", "SSE": "上证指数", "SZSE": "深证成指"}
 INDEX_FALLBACK_NAMES_EN = {"HSI": "Hang Seng Index", "SSE": "Shanghai Composite", "SZSE": "Shenzhen Component"}
-AVAILABLE_JOBS: tuple[dict, ...] = (
-    {
-        "name": "zhi_insights_job",
-        "label": "生成智能分析Insights",
-        "description": "聚合 HSI/SSE/SZSE 当前快照并调用 LLM（OpenAI/Gemini）生成中英文 Insights，失败则写入固定兜底文案。",
-        "schedule": "工作日 09:30-17:00 每30分钟",
-        "targets": ["insight_snapshot", "insight_sys_prompt"],
-    },
-    {
-        "name": "fetch_am",
-        "label": "午盘抓取",
-        "description": "抓取午盘成交额和 HSI 快照（AASTOCKS）；若抓取失败则不写入 MOCK 数据；同时尝试同步最新 Tushare 指数。",
-        "schedule": "工作日 11:35、12:08",
-        "targets": ["turnover_source_record", "turnover_fact", "hsi_quote_fact"],
-    },
-    {
-        "name": "fetch_full",
-        "label": "全日抓取",
-        "description": "抓取全日成交额和 HSI 快照（AASTOCKS）；若抓取失败则不写入 MOCK 数据；同时尝试同步最新 Tushare 指数。",
-        "schedule": "工作日 16:10",
-        "targets": ["turnover_source_record", "turnover_fact", "hsi_quote_fact"],
-    },
-    {
-        "name": "fetch_tushare_index",
-        "label": "同步最新指数",
-        "description": "同步 HSI/SSE/SZSE/DJI/IXIC/SPX/FTSE/GDAXI/N225/KS11/CSX5P 的最新一个交易日(日线)数据，使用 Tushare index_global 接口。",
-        "schedule": "每日 20:00（定时）+ 手动",
-        "targets": ["index_quote_source_record", "index_quote_history", "index_realtime_snapshot"],
-    },
-    {
-        "name": "fetch_eastmoney_realtime_snapshot",
-        "label": "抓取EastMoney实时快照(11指数)",
-        "description": "使用 push2.eastmoney.com/api/qt/stock/get 抓取11个指数实时快照，落库到 index_realtime_api_snapshot。",
-        "schedule": "工作日 09:00-17:00，每30分钟",
-        "targets": ["index_realtime_api_snapshot"],
-        "params": [
-            {"name": "codes", "label": "Index codes (comma)", "type": "text", "placeholder": "HSI,SSE,SZSE,HS11,DJI,IXIC,SPX,N225,UKX,DAX,ESTOXX50E"},
-        ],
-    },
-    {
-        "name": "fetch_intraday_snapshot",
-        "label": "抓取盘中快照",
-        "description": "抓取盘中快照：HSI/SSE/SZSE/HS11(AASTOCKS/EASTMONEY), DJI/IXIC/SPX/N225/UKX/DAX/ESTOXX50E/HS11(Tencent)。默认抓取11个指数。",
-        "schedule": "工作日 09:00-17:00，每3分钟（执行前随机等待1-30秒）",
-        "targets": ["index_realtime_snapshot"],
-        "params": [
-            {"name": "codes", "label": "Index codes (comma)", "type": "text", "placeholder": "HSI,SSE,SZSE,HS11,DJI,IXIC,SPX,N225,UKX,DAX,ESTOXX50E"},
-            {"name": "force_source", "label": "Force source (optional)", "type": "text", "placeholder": "AASTOCKS/EASTMONEY/TUSHARE"},
-        ],
-    },
-    {
-        "name": "refresh_home_global_quotes",
-        "label": "刷新主页-全球股市(Tencent)",
-        "description": "刷新主页『全球股市（免費：Tencent 行情）』缓存数据。",
-        "schedule": "每5分钟",
-        "targets": ["app_cache"],
-    },
-    {
-        "name": "refresh_home_trade_corridor",
-        "label": "刷新主页-Trade Corridor(POC)",
-        "description": "刷新主页『Most Active Trade Corridor（跨市場資金通道｜POC）』缓存数据（当前为MOCK）。",
-        "schedule": "每5分钟",
-        "targets": ["app_cache"],
-    },
-    {
-        "name": "fetch_intraday_bars_cn_5m",
-        "label": "保存A股 5分钟K线",
-        "description": "保存 SSE/SZSE 的 5分钟K线原始bar到 index_intraday_bar（EASTMONEY, lookback=7天）。",
-        "targets": ["index_intraday_bar"],
-        "params": [
-            {"name": "lookback_days", "label": "Lookback days", "type": "number", "placeholder": "7"},
-        ],
-    },
-    {
-        "name": "backfill_tushare_index",
-        "label": "回填指数1年",
-        "description": "回填最近 1 年 HSI/SSE/SZSE/DJI/IXIC/SPX/FTSE/GDAXI/N225/KS11/CSX5P 日线数据（跳过已存在记录）。",
-        "targets": ["index_quote_source_record", "index_quote_history"],
-    },
-    {
-        "name": "backfill_cn_halfday",
-        "label": "回填A股半日成交(90天)",
-        "description": "用 Eastmoney 分钟线回填 SSE/SZSE 的半日成交额与全日成交额（用于柱状图和均值）。",
-        "targets": ["index_quote_history", "index_quote_source_record"],
-    },
-    {
-        "name": "persist_eastmoney_kline_all",
-        "label": "保存Eastmoney分钟K线(可得范围)",
-        "description": "把 Eastmoney 当前可返回的 1m/5m 指数K线写入 index_kline_source_record（HSI/SSE/SZSE）。",
-        "targets": ["index_kline_source_record"],
-        "params": [
-            {"name": "lookback_days_1m", "label": "Lookback days (1m)", "type": "number", "placeholder": "365"},
-            {"name": "lookback_days_5m", "label": "Lookback days (5m)", "type": "number", "placeholder": "365"}
-        ],
-    },
-    {
-        "name": "backfill_hsi_am_from_kline",
-        "label": "回填HSI半日成交(由K线聚合)",
-        "description": "基于 index_kline_source_record(EASTMONEY,5m) 聚合回填 HSI 的历史 AM turnover 到 index_quote_history。",
-        "targets": ["index_kline_source_record", "index_quote_source_record", "index_quote_history"],
-        "params": [
-            {"name": "date_from", "label": "Date from (YYYY-MM-DD, optional)", "type": "text", "placeholder": "2026-01-12"},
-            {"name": "date_to", "label": "Date to (YYYY-MM-DD, optional)", "type": "text", "placeholder": "2026-02-11"}
-        ],
-    },
-    {
-        "name": "backfill_hkex",
-        "label": "回填HKEX历史",
-        "description": "从 HKEX 统计页面回填港股成交额历史（FULL）。",
-        "targets": ["turnover_source_record", "turnover_fact"],
-    },
-    {
-        "name": "backfill_hsi_am_yesterday",
-        "label": "回填HSI昨日半日成交",
-        "description": "从 Eastmoney 1分钟K线聚合回填 HSI 昨日半日成交（<=12:30）。",
-        "targets": ["index_realtime_snapshot"],
-        "params": [
-            {"name": "trade_date", "label": "Trade date (YYYY-MM-DD, optional)", "type": "text", "placeholder": "2026-02-10"},
-        ],
-    },
-)
+
+
+def _as_json_array(raw: str | None) -> list:
+    if not raw:
+        return []
+    parsed = json.loads(raw)
+    if not isinstance(parsed, list):
+        raise ValueError("must be a JSON array")
+    return parsed
+
+
+def _as_json_object(raw: str | None) -> dict:
+    if not raw:
+        return {}
+    parsed = json.loads(raw)
+    if not isinstance(parsed, dict):
+        raise ValueError("must be a JSON object")
+    return parsed
+
+
+def _parse_bool_form(form, name: str) -> bool:
+    return str(form.get(name, "")).strip().lower() in {"1", "true", "on", "yes"}
+
+
+def _as_bool(value, default: bool) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"1", "true", "on", "yes"}
+
+
+def _parse_job_params(params_schema: list, params: dict) -> dict:
+    if not params_schema:
+        return params
+
+    normalized = dict(params)
+    for item in params_schema:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        if not name:
+            continue
+
+        raw = normalized.get(name)
+        if raw is None:
+            continue
+        kind = str(item.get("type") or "text").strip().lower()
+        if kind == "number":
+            if isinstance(raw, (int, float)):
+                normalized[name] = raw
+            elif str(raw).strip() != "":
+                text = str(raw).strip()
+                normalized[name] = float(text) if "." in text else int(text)
+        else:
+            normalized[name] = str(raw).strip()
+    return normalized
+
+
+def _schedule_summary(rows: list[JobSchedule]) -> str:
+    if not rows:
+        return "手动"
+    active_rows = [r for r in rows if r.is_active]
+    if not active_rows:
+        return "已禁用"
+    parts = [f"{r.day_of_week} {r.hour}:{r.minute}" for r in active_rows]
+    return "; ".join(parts[:3]) + (" ..." if len(parts) > 3 else "")
 
 
 def _latest_index_history(db: Session, *, index_id: int, session: SessionType) -> IndexQuoteHistory | None:
@@ -901,16 +851,192 @@ def jobs(
     for row in runs:
         if row.job_name not in latest_run_by_name:
             latest_run_by_name[row.job_name] = row
+
+    definitions = db.query(JobDefinition).order_by(JobDefinition.ui_order.asc(), JobDefinition.job_name.asc()).all()
+    schedules = db.query(JobSchedule).order_by(JobSchedule.job_name.asc(), JobSchedule.schedule_code.asc()).all()
+    app_users = db.query(AppUser).order_by(AppUser.created_at.desc()).all()
+    schedule_by_job_name: dict[str, list[JobSchedule]] = {}
+    for row in schedules:
+        schedule_by_job_name.setdefault(row.job_name, []).append(row)
+
+    available_jobs: list[dict] = []
+    for row in definitions:
+        rows = schedule_by_job_name.get(row.job_name, [])
+        schedules_json = [
+            {
+                "schedule_code": s.schedule_code,
+                "trigger_type": s.trigger_type,
+                "timezone": s.timezone,
+                "second": s.second,
+                "minute": s.minute,
+                "hour": s.hour,
+                "day": s.day,
+                "month": s.month,
+                "day_of_week": s.day_of_week,
+                "jitter_seconds": s.jitter_seconds,
+                "misfire_grace_time": s.misfire_grace_time,
+                "coalesce": bool(s.coalesce),
+                "max_instances": s.max_instances,
+                "is_active": bool(s.is_active),
+                "description": s.description,
+            }
+            for s in rows
+        ]
+        available_jobs.append(
+            {
+                "name": row.job_name,
+                "handler_name": row.handler_name,
+                "label": row.label_zh,
+                "description": row.description_zh,
+                "targets": row.targets or [],
+                "params": row.params_schema or [],
+                "default_params": row.default_params or {},
+                "is_active": bool(row.is_active),
+                "manual_enabled": bool(row.manual_enabled),
+                "schedule_enabled": bool(row.schedule_enabled),
+                "revision": row.revision,
+                "schedules": rows,
+                "schedules_json": schedules_json,
+                "schedule_summary": _schedule_summary(rows),
+            }
+        )
+
     return templates.TemplateResponse(
         "jobs.html",
         _template_context(
             request,
             current_user=current_user,
             jobs=runs,
-            available_jobs=AVAILABLE_JOBS,
+            app_users=app_users,
+            available_jobs=available_jobs,
             latest_run_by_name=latest_run_by_name,
         ),
     )
+
+
+@router.post("/api/job-definitions/save")
+async def save_job_definition(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: AppUser | None = Depends(get_current_user),
+):
+    if current_user is None:
+        target = request.url.path.replace("/api/job-definitions/save", "/jobs")
+        return build_login_redirect(request, next_path=target)
+
+    form = await request.form()
+    job_name = str(form.get("job_name") or "").strip()
+    base = (request.scope.get("root_path") or "").rstrip("/")
+    if not job_name:
+        return RedirectResponse(url=f"{base}/jobs", status_code=303)
+
+    row = db.query(JobDefinition).filter(JobDefinition.job_name == job_name).first()
+    if row is None:
+        return RedirectResponse(url=f"{base}/jobs", status_code=303)
+
+    try:
+        params_schema = _as_json_array(str(form.get("params_schema_json") or "").strip())
+        default_params = _as_json_object(str(form.get("default_params_json") or "").strip())
+        schedules = _as_json_array(str(form.get("schedules_json") or "").strip())
+    except (ValueError, json.JSONDecodeError):
+        return RedirectResponse(url=f"{base}/jobs", status_code=303)
+
+    targets = [x.strip() for x in str(form.get("targets_csv") or "").split(",") if x.strip()]
+
+    row.handler_name = str(form.get("handler_name") or row.handler_name).strip() or row.handler_name
+    row.label_zh = str(form.get("label_zh") or row.label_zh).strip() or row.label_zh
+    row.description_zh = str(form.get("description_zh") or row.description_zh).strip() or row.description_zh
+    row.targets = targets
+    row.params_schema = params_schema
+    row.default_params = default_params
+    row.is_active = _parse_bool_form(form, "is_active")
+    row.manual_enabled = _parse_bool_form(form, "manual_enabled")
+    row.schedule_enabled = _parse_bool_form(form, "schedule_enabled")
+    row.revision = int(row.revision or 1) + 1
+
+    db.query(JobSchedule).filter(JobSchedule.job_name == job_name).delete(synchronize_session=False)
+    try:
+        for item in schedules:
+            if not isinstance(item, dict):
+                continue
+            schedule_code = str(item.get("schedule_code") or "").strip()
+            if not schedule_code:
+                continue
+
+            db.add(
+                JobSchedule(
+                    job_name=job_name,
+                    schedule_code=schedule_code,
+                    trigger_type=str(item.get("trigger_type") or "cron"),
+                    timezone=str(item.get("timezone") or settings.TZ),
+                    second=str(item.get("second") or "0"),
+                    minute=str(item.get("minute") or "*"),
+                    hour=str(item.get("hour") or "*"),
+                    day=str(item.get("day") or "*"),
+                    month=str(item.get("month") or "*"),
+                    day_of_week=str(item.get("day_of_week") or "*"),
+                    jitter_seconds=int(item["jitter_seconds"]) if item.get("jitter_seconds") not in (None, "") else None,
+                    misfire_grace_time=int(item.get("misfire_grace_time") or 120),
+                    coalesce=_as_bool(item.get("coalesce"), True),
+                    max_instances=max(1, int(item.get("max_instances") or 1)),
+                    is_active=_as_bool(item.get("is_active"), True),
+                    description=str(item.get("description")).strip() if item.get("description") else None,
+                )
+            )
+    except (TypeError, ValueError):
+        db.rollback()
+        return RedirectResponse(url=f"{base}/jobs", status_code=303)
+
+    db.commit()
+    reload_scheduler()
+    return RedirectResponse(url=f"{base}/jobs", status_code=303)
+
+
+@router.post("/api/users/update")
+def users_update(
+    request: Request,
+    user_id: int = Form(...),
+    email: str = Form(...),
+    display_name: str = Form(""),
+    is_active: str | None = Form(None),
+    is_superuser: str | None = Form(None),
+    db: Session = Depends(get_db),
+    current_user: AppUser | None = Depends(get_current_user),
+):
+    if current_user is None:
+        target = request.url.path.replace("/api/users/update", "/jobs")
+        return build_login_redirect(request, next_path=target)
+
+    base = (request.scope.get("root_path") or "").rstrip("/")
+    target_user = db.query(AppUser).filter(AppUser.id == user_id).first()
+    if target_user is None:
+        return RedirectResponse(url=f"{base}/jobs", status_code=303)
+
+    email_n = normalize_email(email)
+    if not is_valid_email(email_n):
+        return RedirectResponse(url=f"{base}/jobs", status_code=303)
+
+    exists = db.query(AppUser.id).filter(AppUser.email == email_n, AppUser.id != target_user.id).first()
+    if exists is not None:
+        return RedirectResponse(url=f"{base}/jobs", status_code=303)
+
+    next_active = str(is_active or "").strip().lower() in {"1", "true", "on", "yes"}
+    if int(target_user.id) == int(current_user.id) and not next_active:
+        next_active = True
+
+    target_user.email = email_n
+    target_user.username = email_n
+    target_user.display_name = display_name.strip() or None
+    target_user.is_active = next_active
+    target_user.is_superuser = str(is_superuser or "").strip().lower() in {"1", "true", "on", "yes"}
+
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        return RedirectResponse(url=f"{base}/jobs", status_code=303)
+
+    return RedirectResponse(url=f"{base}/jobs", status_code=303)
 
 
 @router.get("/api/insights/latest")
@@ -959,14 +1085,20 @@ async def jobs_run(
         target = request.url.path.replace("/api/jobs/run", "/jobs")
         return build_login_redirect(request, next_path=target)
 
+    definition = db.query(JobDefinition).filter(JobDefinition.job_name == job_name).first()
+    base = (request.scope.get("root_path") or "").rstrip("/")
+    if definition is None or not definition.is_active or not definition.manual_enabled:
+        return RedirectResponse(url=f"{base}/jobs", status_code=303)
+
     form = await request.form()
 
     params: dict = {}
     params_json = (form.get("params_json") or "").strip()
     if params_json:
-        import json
-
-        params.update(json.loads(params_json))
+        try:
+            params.update(json.loads(params_json))
+        except json.JSONDecodeError:
+            return RedirectResponse(url=f"{base}/jobs", status_code=303)
 
     # Collect param_* fields
     for k, v in form.items():
@@ -983,8 +1115,11 @@ async def jobs_run(
             val = v
         params[name] = val
 
-    run_job(db, job_name, params=params or None)
-    base = (request.scope.get("root_path") or "").rstrip("/")
+    merged_params = dict(definition.default_params or {})
+    merged_params.update(params)
+    parsed_params = _parse_job_params(definition.params_schema or [], merged_params)
+
+    run_job(db, definition.handler_name, params=parsed_params or None)
     return RedirectResponse(url=f"{base}/jobs", status_code=303)
 
 

@@ -3,7 +3,6 @@ from __future__ import annotations
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 # Debug aid: allow dumping stack traces via `kill -USR1 <pid>`.
 # Safe in production (only triggers when signaled).
@@ -12,15 +11,12 @@ import signal
 
 faulthandler.register(signal.SIGUSR1)
 
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.cron import CronTrigger
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
-from app.db.session import SessionLocal
-from app.jobs.tasks import run_job
+from app.services.job_scheduler import start_scheduler, stop_scheduler
 from app.web.routes import router as web_router
 from app.web.visit_logs import add_visit_logging
 
@@ -28,172 +24,17 @@ base_path = settings.BASE_PATH.rstrip("/")
 logger = logging.getLogger(__name__)
 favicon_path = Path("app/web/static/favicon.ico")
 
-_scheduler: BackgroundScheduler | None = None
-
-
-def _run_job_with_new_session(job_name: str) -> None:
-    db = SessionLocal()
-    try:
-        run = run_job(db, job_name)
-        logger.info("Scheduled job finished: job=%s status=%s id=%s", job_name, run.status, run.id)
-    except Exception:
-        logger.exception("Scheduled job failed unexpectedly: job=%s", job_name)
-    finally:
-        db.close()
-
-
-def _build_scheduler() -> BackgroundScheduler:
-    scheduler = BackgroundScheduler(timezone=ZoneInfo(settings.TZ))
-
-    # Eastmoney realtime snapshot (stock/get, 11 indices), every 60 minutes in trading hours.
-    scheduler.add_job(
-        _run_job_with_new_session,
-        CronTrigger(day_of_week="mon-fri", hour="9-16", minute=0),
-        kwargs={"job_name": "fetch_eastmoney_realtime_snapshot"},
-        id="fetch_eastmoney_realtime_snapshot_interval",
-        replace_existing=True,
-        coalesce=True,
-        max_instances=1,
-        misfire_grace_time=120,
-    )
-    scheduler.add_job(
-        _run_job_with_new_session,
-        CronTrigger(day_of_week="mon-fri", hour=17, minute=0),
-        kwargs={"job_name": "fetch_eastmoney_realtime_snapshot"},
-        id="fetch_eastmoney_realtime_snapshot_1700",
-        replace_existing=True,
-        coalesce=True,
-        max_instances=1,
-        misfire_grace_time=120,
-    )
-
-    # Existing intraday snapshot refresh during trading hours (Mon-Fri, every 3 minutes, 09:00-17:00).
-    scheduler.add_job(
-        _run_job_with_new_session,
-        CronTrigger(day_of_week="mon-fri", hour="9-16", minute="*/3"),
-        kwargs={"job_name": "fetch_intraday_snapshot"},
-        id="fetch_intraday_snapshot_interval",
-        replace_existing=True,
-        coalesce=True,
-        max_instances=1,
-        misfire_grace_time=120,
-    )
-    # Include 17:00 (avoid scheduling 17:05/17:10/...)
-    scheduler.add_job(
-        _run_job_with_new_session,
-        CronTrigger(day_of_week="mon-fri", hour=17, minute=0),
-        kwargs={"job_name": "fetch_intraday_snapshot"},
-        id="fetch_intraday_snapshot_1700",
-        replace_existing=True,
-        coalesce=True,
-        max_instances=1,
-        misfire_grace_time=120,
-    )
-
-    # Midday and full-day snapshots for turnover cards.
-    scheduler.add_job(
-        _run_job_with_new_session,
-        CronTrigger(day_of_week="mon-fri", hour=11, minute=35),
-        kwargs={"job_name": "fetch_am"},
-        id="fetch_am_cron",
-        replace_existing=True,
-        coalesce=True,
-        max_instances=1,
-    )
-    scheduler.add_job(
-        _run_job_with_new_session,
-        CronTrigger(day_of_week="mon-fri", hour=12, minute=8),
-        kwargs={"job_name": "fetch_am"},
-        id="fetch_am_1208_cron",
-        replace_existing=True,
-        coalesce=True,
-        max_instances=1,
-    )
-
-    # Daily Tushare index sync at 20:00.
-    scheduler.add_job(
-        _run_job_with_new_session,
-        CronTrigger(hour=20, minute=0),
-        kwargs={"job_name": "fetch_tushare_index"},
-        id="fetch_tushare_index_cron",
-        replace_existing=True,
-        coalesce=True,
-        max_instances=1,
-        misfire_grace_time=600,
-    )
-    scheduler.add_job(
-        _run_job_with_new_session,
-        CronTrigger(day_of_week="mon-fri", hour=16, minute=10),
-        kwargs={"job_name": "fetch_full"},
-        id="fetch_full_cron",
-        replace_existing=True,
-        coalesce=True,
-        max_instances=1,
-    )
-
-    # Insight generation (Mon-Fri, 09:30-17:00, every 30 minutes).
-    scheduler.add_job(
-        _run_job_with_new_session,
-        CronTrigger(day_of_week="mon-fri", hour="9-16", minute="0,30"),
-        kwargs={"job_name": "zhi_insights_job"},
-        id="zhi_insights_job_interval",
-        replace_existing=True,
-        coalesce=True,
-        max_instances=1,
-        misfire_grace_time=120,
-    )
-    scheduler.add_job(
-        _run_job_with_new_session,
-        CronTrigger(day_of_week="mon-fri", hour=17, minute=0),
-        kwargs={"job_name": "zhi_insights_job"},
-        id="zhi_insights_job_1700",
-        replace_existing=True,
-        coalesce=True,
-        max_instances=1,
-        misfire_grace_time=120,
-    )
-
-    # Homepage widgets refresh (every 5 minutes).
-    scheduler.add_job(
-        _run_job_with_new_session,
-        CronTrigger(minute="*/5"),
-        kwargs={"job_name": "refresh_home_global_quotes"},
-        id="refresh_home_global_quotes_cron",
-        replace_existing=True,
-        coalesce=True,
-        max_instances=1,
-        misfire_grace_time=120,
-    )
-    scheduler.add_job(
-        _run_job_with_new_session,
-        CronTrigger(minute="*/5"),
-        kwargs={"job_name": "refresh_home_trade_corridor"},
-        id="refresh_home_trade_corridor_cron",
-        replace_existing=True,
-        coalesce=True,
-        max_instances=1,
-        misfire_grace_time=120,
-    )
-
-    return scheduler
-
-
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    global _scheduler
     if settings.ENABLE_SCHEDULED_JOBS:
-        _scheduler = _build_scheduler()
-        _scheduler.start()
-        logger.info("Scheduled jobs enabled. timezone=%s", settings.TZ)
+        start_scheduler()
     else:
         logger.info("Scheduled jobs disabled by ENABLE_SCHEDULED_JOBS.")
 
     try:
         yield
     finally:
-        if _scheduler is not None:
-            _scheduler.shutdown(wait=False)
-            _scheduler = None
+        stop_scheduler()
 
 
 app = FastAPI(title=settings.APP_NAME, lifespan=lifespan)

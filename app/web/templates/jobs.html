@@ -26,13 +26,51 @@
       btn.textContent = 'copied';
       setTimeout(() => (btn.textContent = 'copy'), 800);
     }
+
+    function openJobConfigModal(btn) {
+      const dlg = document.getElementById('job-config-modal');
+      const form = document.getElementById('job-config-form');
+      if (!dlg || !form) return;
+
+      const ds = btn.dataset;
+      form.elements.job_name.value = ds.jobName || '';
+      form.elements.handler_name.value = ds.handlerName || '';
+      form.elements.label_zh.value = ds.labelZh || '';
+      form.elements.description_zh.value = ds.descriptionZh || '';
+      form.elements.targets_csv.value = ds.targetsCsv || '';
+      form.elements.params_schema_json.value = ds.paramsSchema || '[]';
+      form.elements.default_params_json.value = ds.defaultParams || '{}';
+      form.elements.schedules_json.value = ds.schedulesJson || '[]';
+      form.elements.is_active.checked = (ds.isActive || '').toLowerCase() === 'true';
+      form.elements.manual_enabled.checked = (ds.manualEnabled || '').toLowerCase() === 'true';
+      form.elements.schedule_enabled.checked = (ds.scheduleEnabled || '').toLowerCase() === 'true';
+
+      const title = document.getElementById('job-config-title');
+      if (title) {
+        title.textContent = `Edit config: ${ds.jobName || ''}`;
+      }
+
+      dlg.showModal();
+    }
+
+    function closeJobConfigModal() {
+      const dlg = document.getElementById('job-config-modal');
+      if (dlg) dlg.close();
+    }
   </script>
   {% for item in available_jobs %}
     {% set latest = latest_run_by_name.get(item.name) %}
     <tr>
-      <td><code>{{ item.name }}</code><br><span class="muted">{{ item.label }}</span></td>
+      <td>
+        <code>{{ item.name }}</code><br>
+        <span class="muted">{{ item.label }}</span><br>
+        <span class="muted">handler={{ item.handler_name }}</span>
+      </td>
       <td>{{ item.description }}</td>
-      <td>{{ item.schedule or '手动' }}</td>
+      <td>
+        <div>{{ item.schedule_summary }}</div>
+        <div class="muted">schedule_enabled={{ 'true' if item.schedule_enabled else 'false' }}</div>
+      </td>
       <td>
         {% if item.targets %}
           {% set tables = (item.targets | join(', ')) %}
@@ -68,12 +106,12 @@
         {% endif %}
       </td>
       <td>
-        <form method="post" action="{{ base }}/api/jobs/run">
+        <form method="post" action="{{ base }}/api/jobs/run" style="margin-bottom:8px;">
           <input type="hidden" name="job_name" value="{{ item.name }}" />
 
           {% if item.params %}
             <details>
-              <summary class="muted">Params</summary>
+              <summary class="muted">Run params</summary>
               <div style="margin: 8px 0; display: grid; gap: 6px;">
                 {% for p in item.params %}
                   <label>
@@ -83,6 +121,7 @@
                       name="param_{{ p.name }}"
                       type="{{ 'number' if p.type == 'number' else 'text' }}"
                       placeholder="{{ p.placeholder or '' }}"
+                      value="{{ (item.default_params or {}).get(p.name, '') }}"
                     />
                   </label>
                 {% endfor %}
@@ -96,7 +135,94 @@
             <input type="hidden" name="params_json" value="" />
           {% endif %}
 
-          <button type="submit">Run</button>
+          <button type="submit" {% if not item.is_active or not item.manual_enabled %}disabled{% endif %}>Run</button>
+        </form>
+
+        <button
+          type="button"
+          onclick="openJobConfigModal(this)"
+          data-job-name="{{ item.name }}"
+          data-handler-name="{{ item.handler_name }}"
+          data-label-zh="{{ item.label }}"
+          data-description-zh="{{ item.description }}"
+          data-targets-csv="{{ (item.targets or []) | join(', ') }}"
+          data-params-schema="{{ (item.params or []) | tojson | forceescape }}"
+          data-default-params="{{ (item.default_params or {}) | tojson | forceescape }}"
+          data-schedules-json="{{ (item.schedules_json or []) | tojson | forceescape }}"
+          data-is-active="{{ 'true' if item.is_active else 'false' }}"
+          data-manual-enabled="{{ 'true' if item.manual_enabled else 'false' }}"
+          data-schedule-enabled="{{ 'true' if item.schedule_enabled else 'false' }}"
+        >Edit config</button>
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<dialog id="job-config-modal" style="width: min(920px, 92vw);">
+  <form id="job-config-form" method="post" action="{{ base }}/api/job-definitions/save" style="display:grid; gap:8px;">
+    <h3 id="job-config-title" style="margin:0;">Edit config</h3>
+    <input type="hidden" name="job_name" value="" />
+    <label>
+      <span class="muted">handler_name</span><br />
+      <input style="width:100%;" name="handler_name" value="" />
+    </label>
+    <label>
+      <span class="muted">label_zh</span><br />
+      <input style="width:100%;" name="label_zh" value="" />
+    </label>
+    <label>
+      <span class="muted">description_zh</span><br />
+      <textarea style="width:100%;" rows="3" name="description_zh"></textarea>
+    </label>
+    <label>
+      <span class="muted">targets_csv</span><br />
+      <input style="width:100%;" name="targets_csv" value="" />
+    </label>
+    <label>
+      <span class="muted">params_schema_json</span><br />
+      <textarea style="width:100%;" rows="5" name="params_schema_json"></textarea>
+    </label>
+    <label>
+      <span class="muted">default_params_json</span><br />
+      <textarea style="width:100%;" rows="5" name="default_params_json"></textarea>
+    </label>
+    <label>
+      <span class="muted">schedules_json</span><br />
+      <textarea style="width:100%;" rows="8" name="schedules_json"></textarea>
+    </label>
+    <label><input type="checkbox" name="is_active" /> is_active</label>
+    <label><input type="checkbox" name="manual_enabled" /> manual_enabled</label>
+    <label><input type="checkbox" name="schedule_enabled" /> schedule_enabled</label>
+    <div style="display:flex; gap:8px; justify-content:flex-end;">
+      <button type="button" onclick="closeJobConfigModal()">Cancel</button>
+      <button type="submit">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<h3>Registered users</h3>
+<table>
+  <thead><tr><th>ID</th><th>Email</th><th>Display Name</th><th>Flags</th><th>Created</th><th>Action</th></tr></thead>
+  <tbody>
+  {% for user in app_users %}
+    <tr>
+      <td>{{ user.id }}</td>
+      <td>{{ user.email }}</td>
+      <td>{{ user.display_name or '' }}</td>
+      <td>
+        <span class="muted">active={{ 'true' if user.is_active else 'false' }}</span><br>
+        <span class="muted">superuser={{ 'true' if user.is_superuser else 'false' }}</span>
+      </td>
+      <td>{{ user.created_at }}</td>
+      <td>
+        <form method="post" action="{{ base }}/api/users/update" style="display:grid; gap:6px; min-width:260px;">
+          <input type="hidden" name="user_id" value="{{ user.id }}" />
+          <input type="email" name="email" value="{{ user.email }}" required />
+          <input type="text" name="display_name" value="{{ user.display_name or '' }}" placeholder="display name" />
+          <label><input type="checkbox" name="is_active" {% if user.is_active %}checked{% endif %} /> is_active</label>
+          <label><input type="checkbox" name="is_superuser" {% if user.is_superuser %}checked{% endif %} /> is_superuser</label>
+          <button type="submit">Update user</button>
         </form>
       </td>
     </tr>
