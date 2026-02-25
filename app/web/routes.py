@@ -993,32 +993,108 @@ def jobs(
     )
 
 
+@router.get("/job", response_class=HTMLResponse)
+def job_page(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: AppUser | None = Depends(get_current_user),
+):
+    if current_user is None:
+        return build_login_redirect(request)
+
+    runs = db.query(JobRun).order_by(JobRun.started_at.desc()).limit(200).all()
+    latest_run_by_name: dict[str, JobRun] = {}
+    for row in runs:
+        if row.job_name not in latest_run_by_name:
+            latest_run_by_name[row.job_name] = row
+
+    definitions = db.query(JobDefinition).order_by(JobDefinition.ui_order.asc(), JobDefinition.job_name.asc()).all()
+    schedules = db.query(JobSchedule).order_by(JobSchedule.job_name.asc(), JobSchedule.schedule_code.asc()).all()
+    schedule_by_job_name: dict[str, list[JobSchedule]] = {}
+    for row in schedules:
+        schedule_by_job_name.setdefault(row.job_name, []).append(row)
+
+    available_jobs: list[dict] = []
+    for row in definitions:
+        rows = schedule_by_job_name.get(row.job_name, [])
+        latest = latest_run_by_name.get(row.job_name)
+        schedules_json = [
+            {
+                "schedule_code": s.schedule_code,
+                "trigger_type": s.trigger_type,
+                "timezone": s.timezone,
+                "second": s.second,
+                "minute": s.minute,
+                "hour": s.hour,
+                "day": s.day,
+                "month": s.month,
+                "day_of_week": s.day_of_week,
+                "jitter_seconds": s.jitter_seconds,
+                "misfire_grace_time": s.misfire_grace_time,
+                "coalesce": bool(s.coalesce),
+                "max_instances": s.max_instances,
+                "is_active": bool(s.is_active),
+                "description": s.description,
+            }
+            for s in rows
+        ]
+        available_jobs.append(
+            {
+                "name": row.job_name,
+                "handler_name": row.handler_name,
+                "label": row.label_zh,
+                "description": row.description_zh,
+                "targets": row.targets or [],
+                "params": row.params_schema or [],
+                "default_params": row.default_params or {},
+                "is_active": bool(row.is_active),
+                "manual_enabled": bool(row.manual_enabled),
+                "schedule_enabled": bool(row.schedule_enabled),
+                "revision": row.revision,
+                "schedules": rows,
+                "schedules_json": schedules_json,
+                "schedule_summary": _schedule_summary(rows),
+                "latest_status": latest.status if latest is not None else None,
+                "latest_started_at": latest.started_at if latest is not None else None,
+            }
+        )
+
+    return templates.TemplateResponse(
+        "job.html",
+        _template_context(
+            request,
+            current_user=current_user,
+            available_jobs=available_jobs,
+        ),
+    )
+
+
 @router.post("/api/job-definitions/save")
 async def save_job_definition(
     request: Request,
     db: Session = Depends(get_db),
     current_user: AppUser | None = Depends(get_current_user),
 ):
-    if current_user is None:
-        target = request.url.path.replace("/api/job-definitions/save", "/jobs")
-        return build_login_redirect(request, next_path=target)
-
     form = await request.form()
+    next_path = safe_next_path(str(form.get("next_path") or ""), fallback="/jobs")
+    if current_user is None:
+        return build_login_redirect(request, next_path=next_path)
+
     job_name = str(form.get("job_name") or "").strip()
     base = (request.scope.get("root_path") or "").rstrip("/")
     if not job_name:
-        return RedirectResponse(url=f"{base}/jobs", status_code=303)
+        return RedirectResponse(url=f"{base}{next_path}", status_code=303)
 
     row = db.query(JobDefinition).filter(JobDefinition.job_name == job_name).first()
     if row is None:
-        return RedirectResponse(url=f"{base}/jobs", status_code=303)
+        return RedirectResponse(url=f"{base}{next_path}", status_code=303)
 
     try:
         params_schema = _as_json_array(str(form.get("params_schema_json") or "").strip())
         default_params = _as_json_object(str(form.get("default_params_json") or "").strip())
         schedules = _as_json_array(str(form.get("schedules_json") or "").strip())
     except (ValueError, json.JSONDecodeError):
-        return RedirectResponse(url=f"{base}/jobs", status_code=303)
+        return RedirectResponse(url=f"{base}{next_path}", status_code=303)
 
     targets = [x.strip() for x in str(form.get("targets_csv") or "").split(",") if x.strip()]
 
@@ -1064,11 +1140,11 @@ async def save_job_definition(
             )
     except (TypeError, ValueError):
         db.rollback()
-        return RedirectResponse(url=f"{base}/jobs", status_code=303)
+        return RedirectResponse(url=f"{base}{next_path}", status_code=303)
 
     db.commit()
     reload_scheduler()
-    return RedirectResponse(url=f"{base}/jobs", status_code=303)
+    return RedirectResponse(url=f"{base}{next_path}", status_code=303)
 
 
 @router.post("/api/users/update")
@@ -1157,17 +1233,18 @@ def api_latest_insight(
 async def jobs_run(
     request: Request,
     job_name: str = Form(...),
+    next_path: str = Form("/jobs"),
     db: Session = Depends(get_db),
     current_user: AppUser | None = Depends(get_current_user),
 ):
+    safe_next = safe_next_path(next_path, fallback="/jobs")
     if current_user is None:
-        target = request.url.path.replace("/api/jobs/run", "/jobs")
-        return build_login_redirect(request, next_path=target)
+        return build_login_redirect(request, next_path=safe_next)
 
     definition = db.query(JobDefinition).filter(JobDefinition.job_name == job_name).first()
     base = (request.scope.get("root_path") or "").rstrip("/")
     if definition is None or not definition.is_active or not definition.manual_enabled:
-        return RedirectResponse(url=f"{base}/jobs", status_code=303)
+        return RedirectResponse(url=f"{base}{safe_next}", status_code=303)
 
     form = await request.form()
 
@@ -1177,7 +1254,7 @@ async def jobs_run(
         try:
             params.update(json.loads(params_json))
         except json.JSONDecodeError:
-            return RedirectResponse(url=f"{base}/jobs", status_code=303)
+            return RedirectResponse(url=f"{base}{safe_next}", status_code=303)
 
     # Collect param_* fields
     for k, v in form.items():
@@ -1199,7 +1276,7 @@ async def jobs_run(
     parsed_params = _parse_job_params(definition.params_schema or [], merged_params)
 
     run_job(db, definition.handler_name, params=parsed_params or None)
-    return RedirectResponse(url=f"{base}/jobs", status_code=303)
+    return RedirectResponse(url=f"{base}{safe_next}", status_code=303)
 
 
 @router.get("/register", response_class=HTMLResponse)

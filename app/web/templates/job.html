@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Job</h2>
+{% set base = (request.scope.get('root_path') or '') %}
+
+<style>
+  .job-table { table-layout: fixed; }
+  .job-col-main { width: 25%; vertical-align: top; }
+  .job-col-actions { width: 75%; vertical-align: top; }
+  .job-actions-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    align-items: start;
+  }
+</style>
+
+<table class="job-table">
+  <thead>
+    <tr>
+      <th>Job</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for item in available_jobs %}
+    <tr>
+      <td class="job-col-main">
+        <code>{{ item.name }}</code><br>
+        <span class="muted">{{ item.label }}</span><br>
+        <span class="muted">handler={{ item.handler_name }}</span>
+        <br>
+        <span class="muted">{{ item.description }}</span><br>
+        <span class="muted">Schedule: {{ item.schedule_summary }}</span><br>
+        <span class="muted">schedule_enabled={{ 'true' if item.schedule_enabled else 'false' }}</span><br>
+        {% if item.targets %}
+          <span class="muted">Target tables:</span><br>
+          <code>{{ item.targets | join(', ') }}</code><br>
+        {% else %}
+          <span class="muted">Target tables: -</span><br>
+        {% endif %}
+        {% if item.latest_status %}
+          <span class="muted">Last Status: <strong>{{ item.latest_status }}</strong></span><br>
+          <span class="muted">{{ item.latest_started_at }}</span>
+        {% else %}
+          <span class="muted">Last Status: never</span>
+        {% endif %}
+      </td>
+      <td class="job-col-actions">
+        <div class="job-actions-grid">
+          <form method="post" action="{{ base }}/api/job-definitions/save" style="display:grid; gap:6px;">
+            <input type="hidden" name="job_name" value="{{ item.name }}" />
+            <input type="hidden" name="next_path" value="/job" />
+            <label>
+              <span class="muted">handler_name</span><br />
+              <input style="width:100%;" name="handler_name" value="{{ item.handler_name }}" />
+            </label>
+            <label>
+              <span class="muted">label_zh</span><br />
+              <input style="width:100%;" name="label_zh" value="{{ item.label }}" />
+            </label>
+            <label>
+              <span class="muted">description_zh</span><br />
+              <textarea style="width:100%;" rows="3" name="description_zh">{{ item.description }}</textarea>
+            </label>
+            <label>
+              <span class="muted">targets_csv</span><br />
+              <input style="width:100%;" name="targets_csv" value="{{ (item.targets or []) | join(', ') }}" />
+            </label>
+            <label>
+              <span class="muted">params_schema_json</span><br />
+              <textarea style="width:100%;" rows="5" name="params_schema_json">{{ (item.params or []) | tojson }}</textarea>
+            </label>
+            <label>
+              <span class="muted">default_params_json</span><br />
+              <textarea style="width:100%;" rows="5" name="default_params_json">{{ (item.default_params or {}) | tojson }}</textarea>
+            </label>
+            <label>
+              <span class="muted">schedules_json</span><br />
+              <textarea style="width:100%;" rows="8" name="schedules_json">{{ (item.schedules_json or []) | tojson }}</textarea>
+            </label>
+            <label><input type="checkbox" name="is_active" {% if item.is_active %}checked{% endif %} /> is_active</label>
+            <label><input type="checkbox" name="manual_enabled" {% if item.manual_enabled %}checked{% endif %} /> manual_enabled</label>
+            <label><input type="checkbox" name="schedule_enabled" {% if item.schedule_enabled %}checked{% endif %} /> schedule_enabled</label>
+            <button type="submit">Update</button>
+          </form>
+
+          <form method="post" action="{{ base }}/api/jobs/run" style="display:grid; gap:6px;">
+            <input type="hidden" name="job_name" value="{{ item.name }}" />
+            <input type="hidden" name="next_path" value="/job" />
+
+            {% if item.params %}
+              {% for p in item.params %}
+                <label>
+                  <span class="muted">{{ p.label }}</span><br />
+                  <input
+                    style="width: 100%;"
+                    name="param_{{ p.name }}"
+                    type="{{ 'number' if p.type == 'number' else 'text' }}"
+                    placeholder="{{ p.placeholder or '' }}"
+                    value="{{ (item.default_params or {}).get(p.name, '') }}"
+                  />
+                </label>
+              {% endfor %}
+            {% endif %}
+            <label>
+              <span class="muted">params_json (advanced)</span><br />
+              <textarea name="params_json" style="width: 100%;" rows="4" placeholder='{"key":"value"}'></textarea>
+            </label>
+
+            <button type="submit" {% if not item.is_active or not item.manual_enabled %}disabled{% endif %}>Run Now</button>
+          </form>
+        </div>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}
