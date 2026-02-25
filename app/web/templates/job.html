@@ -51,26 +51,22 @@
           <form method="post" action="{{ base }}/api/job-definitions/save" style="display:grid; gap:6px;">
             <input type="hidden" name="job_name" value="{{ item.name }}" />
             <input type="hidden" name="next_path" value="/job" />
-            <label>
-              <span class="muted">handler_name</span><br />
-              <input style="width:100%;" name="handler_name" value="{{ item.handler_name }}" />
-            </label>
-            <label>
-              <span class="muted">label_zh</span><br />
-              <input style="width:100%;" name="label_zh" value="{{ item.label }}" />
-            </label>
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px;">
+              <label>
+                <span class="muted">handler_name</span><br />
+                <input style="width:100%;" name="handler_name" value="{{ item.handler_name }}" />
+              </label>
+              <label>
+                <span class="muted">label_zh</span><br />
+                <input style="width:100%;" name="label_zh" value="{{ item.label }}" />
+              </label>
+            </div>
             <label>
               <span class="muted">description_zh</span><br />
               <textarea style="width:100%;" rows="3" name="description_zh">{{ item.description }}</textarea>
             </label>
-            <label>
-              <span class="muted">targets_csv</span><br />
-              <input style="width:100%;" name="targets_csv" value="{{ (item.targets or []) | join(', ') }}" />
-            </label>
-            <label>
-              <span class="muted">params_schema_json</span><br />
-              <textarea style="width:100%;" rows="5" name="params_schema_json">{{ (item.params or []) | tojson }}</textarea>
-            </label>
+            <input type="hidden" name="targets_csv" value="{{ (item.targets or []) | join(', ') }}" />
+            <input type="hidden" name="params_schema_json" value="{{ (item.params or []) | tojson }}" />
             <label>
               <span class="muted">default_params_json</span><br />
               <textarea style="width:100%;" rows="5" name="default_params_json">{{ (item.default_params or {}) | tojson }}</textarea>
