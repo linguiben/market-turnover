@@ -335,7 +335,7 @@ def _latest_realtime_snapshot_for_kline(db: Session, *, index_id: int) -> IndexR
     )
 
 
-def _extract_minute_kline_from_payload(payload: dict | None, *, limit: int = 120) -> dict[str, list]:
+def _extract_minute_kline_from_payload(payload: dict | None, *, limit: int = 400) -> dict[str, list]:
     if not isinstance(payload, dict):
         return {"times": [], "values": []}
 
